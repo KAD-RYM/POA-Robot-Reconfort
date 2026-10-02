@@ -18,6 +18,10 @@ def _valider_entete(donnees: dict, format_attendu: str, version_attendue: int = 
             f"Version inattendue : attendue {version_attendue}, "
             f"obtenue {donnees.get('version')}."
         )
+        # Verification du nom 
+    if "nom" not in donnees or not isinstance(donnees["nom"], str):
+        erreur_et_quitte(f"Le fichier {donnees} doit contenir un champ 'nom' de type texte.")
+    
 
 
 def valider_carte(carte: dict) -> None:
@@ -25,12 +29,17 @@ def valider_carte(carte: dict) -> None:
 
     _valider_entete(carte, "robot-reconfort/carte", 1)
 
-    # 1. Vérification des dimensions
-    if "hauteur" not in carte or "largeur" not in carte:
-        erreur_et_quitte("La carte doit contenir 'hauteur' et 'largeur'.")
 
-    hauteur = carte["hauteur"]
-    largeur = carte["largeur"]
+    # Vérification des dimensions
+    if "dimensions" not in carte or not isinstance(carte["dimensions"], dict):
+        erreur_et_quitte("La carte doit contenir un objet 'dimensions'.")
+    
+    dim = carte["dimensions"]
+    if "hauteur" not in dim or "largeur" not in dim:
+        erreur_et_quitte("L'objet 'dimensions' doit contenir 'hauteur' et 'largeur'.")
+
+    hauteur = dim["hauteur"]
+    largeur = dim["largeur"]
 
     if not isinstance(hauteur, int) or not isinstance(largeur, int):
         erreur_et_quitte("Les dimensions 'hauteur' et 'largeur' doivent etre des entiers.")
@@ -110,6 +119,8 @@ def valider_carte(carte: dict) -> None:
             erreur_et_quitte("Chaque resident doit avoir un 'id' et une 'position'.")
 
         res_id = resident["id"]
+        if not isinstance(res_id, str):
+            erreur_et_quitte(f"L'id du resident doit etre une chaine de caracteres, obtenu {type(res_id).__name__}.")
         if res_id in ids_residents:
             erreur_et_quitte(f"Identifiant de resident en double : '{res_id}'.")
         ids_residents.add(res_id)
@@ -190,10 +201,14 @@ def valider_armoire(armoire: dict) -> None:
     # 1. Validation des listes de référence (emotions, intensites)
     if "emotions" not in armoire or not isinstance(armoire["emotions"], list):
         erreur_et_quitte("L'armoire doit contenir une liste 'emotions'.")
+    if not all(isinstance(e, str) for e in armoire["emotions"]):
+        erreur_et_quitte("Toutes les emotions doivent etre des chaines de caracteres.")
     emotions_valides = set(armoire["emotions"])
 
     if "intensites" not in armoire or not isinstance(armoire["intensites"], list):
         erreur_et_quitte("L'armoire doit contenir une liste 'intensites'.")
+    if not all(isinstance(e, str) for e in armoire["intensites"]):
+        erreur_et_quitte("Toutes les intensites doivent etre des chaines de caracteres.")
     intensites_valides = set(armoire["intensites"])
 
     # 2. Validation du casier de départ
