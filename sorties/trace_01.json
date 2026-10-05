@@ -3328,8 +3328,8 @@
     {
       "demande": 2,
       "resident": "R2",
-      "emotion": "tristesse",
-      "intensite": "moyenne",
+      "emotion": "peur",
+      "intensite": "faible",
       "casier_choisi": [
         1,
         4
@@ -3343,8 +3343,8 @@
     {
       "demande": 3,
       "resident": "R1",
-      "emotion": "tristesse",
-      "intensite": "moyenne",
+      "emotion": "colere",
+      "intensite": "faible",
       "casier_choisi": [
         1,
         4
@@ -3358,7 +3358,7 @@
     {
       "demande": 4,
       "resident": "R2",
-      "emotion": "tristesse",
+      "emotion": "joie",
       "intensite": "moyenne",
       "casier_choisi": [
         1,
