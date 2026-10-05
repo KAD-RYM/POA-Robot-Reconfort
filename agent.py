@@ -100,6 +100,13 @@ class AgentReconfort:
 
         if sous_obj == "GO_DICO":
             self.plainte_active.dico_atteint = True
+            self.emotion_courante, self.intensite_courante = self.analyser_message()
+            print("\n" + "=" * 50)
+            print("📖 ACTION : CONSULTER le dictionnaire")
+            print(f"💬 Requête normalisée : \"{self.plainte_active.message}\"")
+            print(f"🎯 Émotion conclue    : {self.emotion_courante.upper()}")
+            print(f"⚡ Intensité conclue   : {self.intensite_courante.upper()}")
+            print("=" * 50 + "\n")
             return {"action": "CONSULTER", "argument": None}
 
         elif sous_obj == "GO_ARMOIRE":
@@ -230,6 +237,31 @@ class AgentReconfort:
             return {"action": "AVANCER", "argument": direction}
 
         return {"action": "ATTENDRE", "argument": None}
+
+    def analyser_message(self) -> tuple[str, str]:
+        """
+        Analyse self.message mot par mot dans l'ordre de la phrase.
+        Retourne (emotion, intensite) pour le premier mot-clé trouvé dans le dictionnaire.
+        """
+        # 1. Construction de la table d'indexation du dictionnaire : {forme: (emotion, intensite)}
+        index_dico = {}
+        for entree in self.dictionnaire_donnees.get("entrees", []):
+            emotion = entree["emotion"]
+            intensite = entree["intensite"]
+            for forme in entree.get("formes", []):
+                index_dico[forme.strip().lower()] = (emotion, intensite)
+
+        # 2. Découpage du message normalisé en liste ordonnée de mots
+        mots_message = self.plainte_active.message
+
+        # 3. Parcours mot par mot de la phrase
+        for mot in mots_message:
+            mot_clean = mot.strip().lower()
+            # Si le mot appartient aux mots-clés du dictionnaire
+            if mot_clean in index_dico:
+                return index_dico[mot_clean]
+
+        return "neutre", "moyenne"
     
 
 def afficher_carte_mentale(agent: AgentReconfort, dimensions: dict):
@@ -387,8 +419,8 @@ def main(argv):
         trace.ajouter_livraison(
             demande=demande["numero"],
             resident=id_resident,
-            emotion="tristesse",
-            intensite="moyenne",
+            emotion=agent.emotion_courante,
+            intensite=agent.intensite_courante,
             casier_choisi=(1, 4),
             repli="aucun",
             objet="objet_test",
