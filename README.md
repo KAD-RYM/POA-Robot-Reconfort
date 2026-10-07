@@ -65,3 +65,5 @@ sections 3.2 et 3.3 de l'énoncé : c'est vérifié à la correction.
 Si l'algorithmique des graphes ne vous est pas familière, lisez l'annexe B
 de l'énoncé avant d'écrire quoi que ce soit : elle contient tout le
 nécessaire.
+
+python3 -m unittest discover tests
