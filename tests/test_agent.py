@@ -153,5 +153,38 @@ class TestChoixObjectif(unittest.TestCase):
         self.assertEqual(cible, (3, 3))  # Position résident
         self.assertEqual(self.agent.sous_objectif_actuel, "GO_RESIDENT")
 
+    def test_enchainement_plaintes(self):
+        "Vérifie que l'agent peut traiter une deuxième demande après avoir fini la première."
+        
+        # On simule que le robot a déjà fait Dico et Armoire pour la plainte 1
+        self.agent.plainte_active.dico_atteint = True
+        self.agent.plainte_active.armoire_atteinte = True
+        
+        # Il vise le résident 
+        self.agent.choisir_objectif() 
+        self.assertEqual(self.agent.sous_objectif_actuel, "GO_RESIDENT")
+        
+        # Il interagit (donne l'objet). Cela doit réinitialiser l'état du robot !
+        action = self.agent.interagir_avec_objectif()
+        self.assertEqual(action["action"], "DONNER")
+        self.assertIsNone(self.agent.plainte_active, "Le robot n'a pas supprimé l'ancienne plainte")
+        self.assertIsNone(self.agent.sous_objectif_actuel, "Le robot n'a pas réinitialisé son objectif")
+        
+        # Deuxieme plainte
+        self.agent.pos_residents["R2"] = (8, 8)  # Ajout du resident sur la carte
+        demande_2 = {"numero": 2, "resident": "R2", "message": "je suis triste"}
+        self.agent.plainte_active = Plainte(demande_2, (8, 8))
+        
+        # On vérifie que le cycle recommence bien à zéro (vers le Dictionnaire)
+        cible = self.agent.choisir_objectif()
+        self.assertEqual(cible, (1, 1))  # Position du dico définie dans setUp
+        self.assertEqual(self.agent.sous_objectif_actuel, "GO_DICO")
+        
+        # Et qu'il passe bien à l'armoire ensuite
+        self.agent.plainte_active.dico_atteint = True
+        cible = self.agent.choisir_objectif()
+        self.assertEqual(cible, (2, 2))  # Position de l'armoire
+        self.assertEqual(self.agent.sous_objectif_actuel, "GO_ARMOIRE")
+
 if __name__ == '__main__':
     unittest.main()
