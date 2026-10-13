@@ -5,7 +5,7 @@ import unittest
 # Permet d'importer agent.py depuis le dossier parent
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from agent import AgentReconfort, Plainte
+from agent import AgentReconfort, Plainte, simuler_environnement
 
 class TestRobotDictionnaire(unittest.TestCase):
 
@@ -185,6 +185,53 @@ class TestChoixObjectif(unittest.TestCase):
         cible = self.agent.choisir_objectif()
         self.assertEqual(cible, (2, 2))  # Position de l'armoire
         self.assertEqual(self.agent.sous_objectif_actuel, "GO_ARMOIRE")
+
+class TestMoteurEnvironnement(unittest.TestCase):
+
+    def test_perception_grille_reelle(self):
+        """Vérifie que simuler_environnement traduit bien la grille en perceptions."""
+
+        carte_donnees = {
+            "grille": [
+                ["#", ".", "#"],
+                ["#", "R", "D"],
+                [".", "A", "#"]
+            ]
+        }
+        
+        pos_robot = (1, 1)
+        
+        action = {"action": "ATTENDRE", "argument": None}
+        
+        # On fait tourner le moteur de jeu
+        nouvelle_pos, perceptions = simuler_environnement(carte_donnees, pos_robot, action)
+        
+        # Le robot n'a pas bougé
+        self.assertEqual(nouvelle_pos, (1, 1))
+        
+        self.assertEqual(perceptions["N"], "libre")        
+        self.assertEqual(perceptions["S"], "armoire")     
+        self.assertEqual(perceptions["E"], "dictionnaire") 
+        self.assertEqual(perceptions["O"], "mur")          
+
+    def test_perception_bord_de_carte(self):
+        """Vérifie que regarder en dehors de la grille renvoie bien un 'mur'."""
+        carte_donnees = {
+            "grille": [
+                ["R", "."]
+            ]
+        }
+        # Le robot est tout en haut à gauche (0, 0)
+        pos_robot = (0, 0)
+        action = {"action": "ATTENDRE", "argument": None}
+        
+        _, perceptions = simuler_environnement(carte_donnees, pos_robot, action)
+        
+        # Au Nord et à l'Ouest, il n'y a plus de carte. Le moteur doit sécuriser ça en renvoyant "mur".
+        self.assertEqual(perceptions["N"], "mur")
+        self.assertEqual(perceptions["O"], "mur")
+        self.assertEqual(perceptions["E"], "libre")
+        self.assertEqual(perceptions["S"], "mur")
 
 if __name__ == '__main__':
     unittest.main()
