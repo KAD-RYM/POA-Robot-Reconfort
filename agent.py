@@ -32,6 +32,7 @@ class AgentReconfort:
         self.pos_dico = tuple(carte["dictionnaire"]["position"])
         self.pos_armoire = tuple(carte["armoire"]["position"])
         self.casier_selecteur = tuple(armoire["casier_depart"])  # [ligne, colonne]
+        self.emotions_roue: tuple[str, ...] = tuple(armoire["emotions"])
 
         # Table des résidents : {"R1": (6, 11), ...}
         self.pos_residents = {
@@ -55,6 +56,12 @@ class AgentReconfort:
                 }
                 for c in armoire["casiers"]
             ]
+        }
+
+        # Table de correspondance rapide : (emotion, intensite) -> (ligne, colonne)
+        self.casiers_par_etiquette = {
+            (c["emotion"], c["intensite"]): (c["ligne"], c["colonne"])
+            for c in armoire["casiers"]
         }
 
         # 4. Carte mentale initiale (seuls les éléments connus, AUCUN mur)
@@ -100,18 +107,47 @@ class AgentReconfort:
 
         if sous_obj == "GO_DICO":
             self.plainte_active.dico_atteint = True
-            self.emotion_courante, self.intensite_courante = self.analyser_message()
+            
+            # 1. Analyse et stockage direct DANS la plainte active :
+            self.plainte_active.emotion, self.plainte_active.intensite = self.analyser_message()
+            
+            # (Optionnel) Tu peux aussi garder tes variables sur l'agent si tu en as besoin ailleurs :
+            self.emotion_courante = self.plainte_active.emotion
+            self.intensite_courante = self.plainte_active.intensite
+
             print("\n" + "=" * 50)
             print("📖 ACTION : CONSULTER le dictionnaire")
             print(f"💬 Requête normalisée : \"{self.plainte_active.message}\"")
-            print(f"🎯 Émotion conclue    : {self.emotion_courante.upper()}")
-            print(f"⚡ Intensité conclue   : {self.intensite_courante.upper()}")
+            print(f"🎯 Émotion conclue    : {self.plainte_active.emotion}")
+            print(f"⚡ Intensité conclue   : {self.plainte_active.intensite}")
             print("=" * 50 + "\n")
+
             return {"action": "CONSULTER", "argument": None}
 
         elif sous_obj == "GO_ARMOIRE":
             self.plainte_active.armoire_atteinte = True
-            return {"action": "CHERCHER", "argument": "E"}  # Mouvement de test pour l'armoire
+            
+            # 1. Récupération de l'émotion et de l'intensité cibles lues dans le dictionnaire
+            emotion_cible = self.plainte_active.emotion
+            intensite_cible = self.plainte_active.intensite
+
+            # 2. Génération de la liste triée des 15 casiers candidats
+            candidats = self.generer_candidats_plutchik(emotion_cible, intensite_cible)
+
+            # 3. Le casier idéal est le tout premier de la liste
+            casier_ideal_coords, emotion_ideale, intensite_ideale = candidats[0]
+
+            # 4. Affichage de contrôle dans la console
+            print(f"\n--- [TEST ARMOIRE] ---")
+            print(f"Émotion demandée : {emotion_cible} (intensité {intensite_cible})")
+            print(f"Casier cible idéal : {casier_ideal_coords} -> ({emotion_ideale}, {intensite_ideale})")
+            print("\nLes 15 alternatives (dans l'ordre de priorité Plutchik) :")
+            for idx, (coords, emo, intes) in enumerate(candidats, 1):
+                print(f"  {idx:2d}. Casier {coords} | Émotion: {emo:<12} | Intensité: {intes}")
+            print("----------------------\n")
+
+            # Mouvement de test ou passage à l'étape suivante
+            return {"action": "CHERCHER", "argument": "E"}
 
         elif sous_obj == "GO_RESIDENT":
             # La plainte est terminée, on la réinitialise pour passer à la suivante !
@@ -262,6 +298,92 @@ class AgentReconfort:
                 return index_dico[mot_clean]
 
         return "neutre", "moyenne"
+
+    def calculer_distance_emotion(self, e1: str, e2: str) -> int:
+        """
+        Calcule la distance circulaire minimale entre deux émotions (0 à 4).
+        """
+        # Normalisation en minuscules pour éviter les erreurs de casse
+        e1_clean = e1.lower()
+        e2_clean = e2.lower()
+        roue_clean = [e.lower() for e in self.emotions_roue]
+
+        if e1_clean not in roue_clean or e2_clean not in roue_clean:
+            # Sécurité si l'émotion recherchée n'est pas trouvée
+            return 4
+
+        idx1: int = roue_clean.index(e1_clean)
+        idx2: int = roue_clean.index(e2_clean)
+        diff: int = abs(idx1 - idx2)
+        taille: int = len(self.emotions_roue)
+        return min(diff, taille - diff)
+
+    def determiner_sens_rotation(self, emotion_cible: str, emotion_cand: str) -> int:
+        """
+        Détermine si une émotion candidate est dans le sens horaire par rapport à l'émotion cible.
+
+        Args:
+            emotion_cible: L'émotion d'origine demandée.
+            emotion_cand: L'émotion du casier candidat évalué.
+
+        Returns:
+            int: 0 si horaire (ou identique), 1 si antihoraire.
+                 (Rendre 0 pour horaire permet à Python de la trier en premier).
+        """
+        if emotion_cible == emotion_cand:
+            return 0  # Même émotion -> pas de rotation nécessaire
+
+        idx_cible: int = self.emotions_roue.index(emotion_cible)
+        idx_cand: int = self.emotions_roue.index(emotion_cand)
+        taille: int = len(self.emotions_roue)  # 8
+
+        # Sens horaire à distance 1 ou 2 sur un cycle modulo 8 :
+        if (idx_cible + 1) % taille == idx_cand or (idx_cible + 2) % taille == idx_cand:
+            return 0  # Horaire
+        
+        return 1  # Antihoraire
+
+    def generer_candidats_plutchik(self, emotion_cible: str, intensite_cible: int) -> list[tuple[tuple[int, int], str, int]]:
+        """
+        Génère et trie les 15 candidats Plutchik en gérant les intensités texte ou numériques.
+        """
+        candidats = []
+
+        # Table de correspondance pour convertir "faible", "moyenne", "forte" en chiffres 1, 2, 3
+        CONV_INTENSITE = {
+            "faible": 1, "1": 1, 1: 1,
+            "moyenne": 2, "2": 2, 2: 2,
+            "forte": 3, "3": 3, 3: 3
+        }
+
+        # Conversion de l'intensité cible en nombre (par défaut 2 si non trouvée)
+        val_i_cible = CONV_INTENSITE.get(str(intensite_cible).lower(), 2)
+
+        for (emotion, intensite), coords in self.casiers_par_etiquette.items():
+            dist: int = self.calculer_distance_emotion(emotion_cible, emotion)
+
+            # On rejette les distances 3 et 4 (Section 3.3)
+            if dist > 2:
+                continue
+
+            # Conversion de l'intensité du casier candidat en nombre
+            val_i_cand = CONV_INTENSITE.get(str(intensite).lower(), 2)
+
+            # Calculs mathématiques sécurisés entre entiers
+            ecart_intensite: int = abs(val_i_cible - val_i_cand)
+            rotation: int = self.determiner_sens_rotation(emotion_cible, emotion)
+
+            # Clé de tri à 4 critères
+            cle_tri = (dist, ecart_intensite, val_i_cand, rotation)
+
+            # On conserve les données originales du casier pour le retour
+            candidats.append((cle_tri, coords, emotion, intensite))
+
+        # Tri selon les 4 critères
+        candidats.sort(key=lambda item: item[0])
+
+        # Renvoie la liste ordonnée : [((ligne, colonne), emotion, intensite), ...]
+        return [(item[1], item[2], item[3]) for item in candidats]
     
 
 def afficher_carte_mentale(agent: AgentReconfort, dimensions: dict):
