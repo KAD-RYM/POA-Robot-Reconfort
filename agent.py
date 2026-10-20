@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 from collections import deque
+from typing import Optional
 
 import reconfort_io as rio
 import validation as val
@@ -17,10 +18,11 @@ class Plainte:
         # Données résolues au fur et à mesure
         self.emotion = None           # e.g., "tristesse"
         self.intensite = None         # e.g., "moyenne"
-        self.objet_associe = None     # e.g., "couverture"
         self.casiers_a_tester = []    # Liste ordonnée des 15 casiers candidats
         self.casier_cible = None      # Casier actuellement visé dans l'armoire
+        self.objet_associe = None     # e.g., "couverture"
         self.objet_en_main = False
+        self.casier_trouve = None
         self.repli = "aucun"          # "aucun", "intensite", "voisine_1", "voisine_2"
 
 class AgentReconfort:
@@ -31,8 +33,9 @@ class AgentReconfort:
         self.pos_actuelle = tuple(carte["depart_robot"])
         self.pos_dico = tuple(carte["dictionnaire"]["position"])
         self.pos_armoire = tuple(carte["armoire"]["position"])
-        self.casier_selecteur = tuple(armoire["casier_depart"])  # [ligne, colonne]
-        self.emotions_roue: tuple[str, ...] = tuple(armoire["emotions"])
+        self.casier_selecteur = tuple(armoire["casier_depart"])
+        self.emotions_roue = tuple(armoire["emotions"])
+        self.casiers_vides_memoire = set()
 
         # Table des résidents : {"R1": (6, 11), ...}
         self.pos_residents = {
@@ -83,13 +86,13 @@ class AgentReconfort:
         if not hasattr(self, 'plainte_active') or self.plainte_active is None:
             return None
 
-        # Étape 1 : Se rendre au dictionnaire
+        # Étape 1 : Se rendre au dictionnaire (jusqu'à consultation)
         if not getattr(self.plainte_active, 'dico_atteint', False):
             self.sous_objectif_actuel = "GO_DICO"
             return self.pos_dico
 
-        # Étape 2 : Se rendre à l'armoire
-        elif not getattr(self.plainte_active, 'armoire_atteinte', False):
+        # Étape 2 : Se rendre à l'armoire (jusqu'à avoir pris l'objet !)
+        elif not getattr(self.plainte_active, 'objet_en_main', False):
             self.sous_objectif_actuel = "GO_ARMOIRE"
             return self.pos_armoire
 
@@ -98,7 +101,7 @@ class AgentReconfort:
             self.sous_objectif_actuel = "GO_RESIDENT"
             return self.plainte_active.pos_resident
 
-    def interagir_avec_objectif(self):
+    def interagir_avec_objectif(self, perceptions_locales: dict) -> dict:
         """
         Déclenché uniquement quand l'agent est adjacent à sa cible.
         Valide l'étape en cours et renvoie l'action.
@@ -125,36 +128,106 @@ class AgentReconfort:
             return {"action": "CONSULTER", "argument": None}
 
         elif sous_obj == "GO_ARMOIRE":
-            self.plainte_active.armoire_atteinte = True
+            plainte = self.plainte_active
+            plainte.armoire_atteinte = True
+
+            # 1. Initialisation de la liste des candidats Plutchik si pas encore fait
+            if not plainte.casiers_a_tester:
+                candidats = self.generer_candidats_plutchik(plainte.emotion, plainte.intensite)
+                
+                # Filtrage en retirant les casiers connus comme vides
+                plainte.casiers_a_tester = [
+                    cand for cand in candidats 
+                    if cand[0] not in self.casiers_vides_memoire
+                ]
+
+                # --- AFFICHAGE DES ÉLÉMENTS UTILES ---
+                print("\n" + "=" * 50)
+                print(f"🎯 Émotion / Intensité cibles : {plainte.emotion} ({plainte.intensite})")
+                print(f"📋 Liste brute Plutchik (15 candidats) :")
+                for pos, em, idx in candidats:
+                    print(f"   • Casier {pos} -> {em} (dist: {idx})")
+                print(f"🚫 Casiers vides en mémoire : {list(self.casiers_vides_memoire)}")
+                print(f"🔍 Candidats restants à tester ({len(plainte.casiers_a_tester)}) :")
+                for pos, em, idx in plainte.casiers_a_tester:
+                    print(f"   -> Casier {pos}")
+                print("=" * 50 + "\n")
+
+                if not plainte.casiers_a_tester:
+                    print("⚠️ Tous les casiers candidats sont vides ! (Échec armoire vide)")
+                    return {"action": "REPLI", "argument": None}
+
+                plainte.casier_cible = plainte.casiers_a_tester[0][0]
+                print(f"🎯 Première cible sélectionnée : {plainte.casier_cible}")
+
+            # 2. Traitement du contenu du casier courant UNIQUEMENT s'il correspond au casier cible visé
+            contenu = perceptions_locales.get("contenu_casier")
+
+            if self.casier_selecteur == plainte.casier_cible:
+                if contenu:
+                    # OBJET TROUVÉ DANS LE CASIER CIBLE !
+                    print("\n" + "🎉 " * 10)
+                    print(f"📦 OBJET PRIS        : '{contenu}'")
+                    print(f"📍 CASIER CIBLE ATTEINT : {self.casier_selecteur}")
+                    print(f"🎯 CIBLE INITIALE    : {plainte.casier_cible}")
+                    print("🎉 " * 10 + "\n")
+
+                    plainte.objet_associe = contenu
+                    plainte.casier_trouve = self.casier_selecteur
+                    plainte.objet_en_main = True
+                    
+                    # Passage à l'étape suivante : livrer le résident
+                    self.sous_objectif_actuel = "GO_RESIDENT"
+                    plainte.sous_objectif_actuel = "GO_RESIDENT"
+                    
+                    return {"action": "PRENDRE", "argument": contenu}
+                else:
+                    # Le casier cible était vide : on l'enregistre en mémoire et on passe au suivant
+                    print(f"❌ Casier {self.casier_selecteur} vide. Mémorisation et passage au candidat suivant.")
+                    self.casiers_vides_memoire.add(self.casier_selecteur)
+                    plainte.casiers_a_tester.pop(0)
+
+                    if not plainte.casiers_a_tester:
+                        print("⚠️ Tous les casiers candidats de la liste ont été testés sans succès.")
+                        return {"action": "REPLI", "argument": None}
+
+                    plainte.casier_cible = plainte.casiers_a_tester[0][0]
+                    print(f"🎯 Nouvelle cible sélectionnée : {plainte.casier_cible}")
+
+            # 3. Calcul de la direction du sélecteur vers le casier cible courant
+            direction = self.calculer_direction_selecteur(self.casier_selecteur, plainte.casier_cible)
+            print(f"🕹️ DEPLACEMENT SELECTEUR : Pos Actuelle {self.casier_selecteur} ➔ Cible {plainte.casier_cible} | Action : CHERCHER {direction}")
             
-            # 1. Récupération de l'émotion et de l'intensité cibles lues dans le dictionnaire
-            emotion_cible = self.plainte_active.emotion
-            intensite_cible = self.plainte_active.intensite
-
-            # 2. Génération de la liste triée des 15 casiers candidats
-            candidats = self.generer_candidats_plutchik(emotion_cible, intensite_cible)
-
-            # 3. Le casier idéal est le tout premier de la liste
-            casier_ideal_coords, emotion_ideale, intensite_ideale = candidats[0]
-
-            # 4. Affichage de contrôle dans la console
-            print(f"\n--- [TEST ARMOIRE] ---")
-            print(f"Émotion demandée : {emotion_cible} (intensité {intensite_cible})")
-            print(f"Casier cible idéal : {casier_ideal_coords} -> ({emotion_ideale}, {intensite_ideale})")
-            print("\nLes 15 alternatives (dans l'ordre de priorité Plutchik) :")
-            for idx, (coords, emo, intes) in enumerate(candidats, 1):
-                print(f"  {idx:2d}. Casier {coords} | Émotion: {emo:<12} | Intensité: {intes}")
-            print("----------------------\n")
-
-            # Mouvement de test ou passage à l'étape suivante
-            return {"action": "CHERCHER", "argument": "E"}
-
+            return {"action": "CHERCHER", "argument": direction}
+        
+        # --- 3. RÉSIDENT (LIVRAISON) ---
         elif sous_obj == "GO_RESIDENT":
-            # La plainte est terminée, on la réinitialise pour passer à la suivante !
-            self.plainte_active = None
-            self.sous_objectif_actuel = None
-            return {"action": "DONNER", "argument": "objet_test"}
+            plainte = self.plainte_active
 
+            # 1. Enregistrement dynamique immédiat dans la trace
+            if hasattr(self, 'trace') and self.trace is not None:
+                self.trace.ajouter_livraison(
+                    demande=plainte.numero,
+                    resident=plainte.id_resident,
+                    emotion=plainte.emotion,
+                    intensite=plainte.intensite,
+                    casier_choisi=plainte.casier_trouve,
+                    repli=plainte.repli,
+                    objet=plainte.objet_associe,
+                    succes=True
+                )
+
+            print("\n" + "=" * 50)
+            print(f"🎁 LIVRAISON RÉUSSIE | Demande #{plainte.numero} | Résident : {plainte.id_resident}")
+            print(f"📦 Objet '{plainte.objet_associe}' livré (pris en {plainte.casier_trouve})")
+            print("=" * 50 + "\n")
+
+            # 2. On clôture la plainte
+            self.plainte_active = None
+            
+            return {"action": "DONNER", "argument": plainte.objet_associe}
+
+        # --- SÉCURITÉ ---
         return {"action": "ATTENDRE", "argument": None}
 
     def mettre_a_jour_perceptions(self, perceptions: dict) -> None:
@@ -170,9 +243,11 @@ class AgentReconfort:
         }
 
         for direction, type_case in perceptions.items():
-            pos_tuple = offsets[direction]
-            if pos_tuple not in self.carte_mentale or self.carte_mentale[pos_tuple] in (".", "libre"):
-                self.carte_mentale[pos_tuple] = type_case
+            # Ignorer contenu_casier et toute clé qui n'est pas une direction cardinale
+            if direction in offsets:
+                pos_tuple = offsets[direction]
+                if pos_tuple not in self.carte_mentale or self.carte_mentale[pos_tuple] in (".", "libre"):
+                    self.carte_mentale[pos_tuple] = type_case
 
     def est_adjacent(self, pos1: tuple, pos2: tuple) -> bool:
         """Vérifie si pos1 et pos2 sont orthogonale-ment adjacentes (distance Manhattan = 1)."""
@@ -239,20 +314,19 @@ class AgentReconfort:
 
     def decider_action(self, perceptions):
         """Gère le déplacement étape par étape vers l'objectif courant."""
-        # 1. Enregistre les cases perçues dans la carte mentale
         self.mettre_a_jour_perceptions(perceptions)
 
-        # 2. Récupère la case cible
         pos_cible = self.choisir_objectif()
         if pos_cible is None:
             return {"action": "ATTENDRE", "argument": None}
 
         # 3. Si on est collé à la cible -> On interagit !
+        # (Pour l'armoire, cela va renvoyer CHERCHER E, puis CHERCHER E..., jusqu'à PRENDRE)
         if self.est_adjacent(self.pos_actuelle, pos_cible):
             self.chemin_en_cours = []
-            return self.interagir_avec_objectif()
+            return self.interagir_avec_objectif(perceptions)
 
-        # 4. Sinon, on recalcule ou on suit le chemin BFS
+        # 4. Sinon, on se déplace sur la carte mentale (BFS)
         besoin_recalcul = (
             not self.chemin_en_cours 
             or self.carte_mentale.get(self.chemin_en_cours[0]) == "mur"
@@ -261,11 +335,8 @@ class AgentReconfort:
         if besoin_recalcul:
             self.chemin_en_cours = self.calculer_chemin_bfs(pos_cible)
 
-        # 5. On extrait le prochain pas et on avance
         if self.chemin_en_cours:
             prochaine_case = self.chemin_en_cours.pop(0)
-            
-            # Sécurité si la première case est la position actuelle
             if prochaine_case == self.pos_actuelle and self.chemin_en_cours:
                 prochaine_case = self.chemin_en_cours.pop(0)
 
@@ -384,6 +455,30 @@ class AgentReconfort:
 
         # Renvoie la liste ordonnée : [((ligne, colonne), emotion, intensite), ...]
         return [(item[1], item[2], item[3]) for item in candidats]
+
+    def calculer_direction_selecteur(self, depart: tuple[int, int], cible: tuple[int, int]) -> str:
+        """
+        Calcule la direction ("N", "S", "E", "O") pour faire 1 pas du sélecteur
+        depuis 'depart' vers 'cible' (avec bouclage des colonnes 0 <-> 7).
+        """
+        l_dep, c_dep = depart
+        l_cib, c_cib = cible
+
+        # 1. Mouvement vertical prioritaire (si pas sur la même ligne)
+        if l_dep < l_cib:
+            return "S"
+        elif l_dep > l_cib:
+            return "N"
+
+        # 2. Mouvement horizontal (avec bouclage circulaire des 8 colonnes)
+        if c_dep != c_cib:
+            a = (c_cib - c_dep) % 8
+            if a <= 4:
+                return "E"   # Aller vers l'Est (plus court)
+            else:
+                return "O"   # Aller vers l'Ouest (via le bouclage)
+
+        return ""
     
 
 def afficher_carte_mentale(agent: AgentReconfort, dimensions: dict):
@@ -461,6 +556,32 @@ def simuler_environnement(carte_donnees: dict, pos_robot: tuple, action_dict: di
 
     return pos_robot, perceptions
 
+def simuler_armoire(armoire_donnees: dict, casier_selecteur: tuple, action_dict: dict) -> tuple[tuple, Optional[str]]:
+    """
+    Gère uniquement le sous-univers de l'armoire (déplacement du sélecteur et contenu du casier).
+    """
+    lig, col = casier_selecteur
+    action = action_dict.get("action")
+    arg = action_dict.get("argument")
+
+    # 1. Mise à jour de la position du sélecteur en cas de CHERCHER
+    if action == "CHERCHER":
+        if arg == "N" and lig > 0: lig -= 1
+        elif arg == "S" and lig < 2: lig += 1
+        elif arg == "E": col = (col + 1) % 8  # Bouclage circulaire
+        elif arg == "O": col = (col - 1) % 8  # Bouclage circulaire
+    
+    nouveau_selecteur = (lig, col)
+
+    # 2. Consultation du contenu du casier courant sous le sélecteur
+    contenu_casier = None
+    for casier in armoire_donnees.get("casiers", []):
+        if casier["ligne"] == lig and casier["colonne"] == col:
+            contenu_casier = casier.get("objet")  # None si vide, str si garni
+            break
+
+    return nouveau_selecteur, contenu_casier
+
 def main(argv):
     if len(argv) != 5:
         print("Usage: python agent.py <carte> <scenario> <dossier_donnees> <trace_sortie>", file=sys.stderr)
@@ -490,11 +611,14 @@ def main(argv):
     # 2. Instanciation de l'agent et de la trace
     agent = AgentReconfort(carte, dictionnaire, armoire)
     trace = rio.Trace(carte["nom"], scenario["nom"], equipe=["Test", "Agent"])
+    agent.trace = trace
 
     # 3. Boucle sur chaque demande du scénario
     for demande in scenario["demandes"]:
         id_resident = demande["resident"]
         pos_res = agent.pos_residents[id_resident]
+        plainte = Plainte(demande, pos_res)  # On garde une référence 'plainte' dans le main
+        agent.plainte_active = plainte
         
         # Injection de la plainte en cours
         agent.plainte_active = Plainte(demande, pos_res)
@@ -505,13 +629,21 @@ def main(argv):
 
         tour = 0
         perceptions_locales = {}
+        action_dict = {"action": "ATTENDRE", "argument": None}
 
         # Boucle tour par tour jusqu'à la livraison complète au résident
         while agent.plainte_active is not None:
             # A. L'environnement simule la perception autour de la position physique
             agent.pos_actuelle, perceptions_locales = simuler_environnement(
-                carte, agent.pos_actuelle, {"action": "ATTENDRE", "argument": None}
+                carte, agent.pos_actuelle, action_dict
             )
+
+            agent.casier_selecteur, contenu = simuler_armoire(
+                armoire, agent.casier_selecteur, action_dict
+            )
+
+            # Injection de la vision du casier courant dans les perceptions
+            perceptions_locales["contenu_casier"] = contenu
 
             # B. L'agent décide de son action
             action_dict = agent.decider_action(perceptions_locales)
@@ -519,11 +651,6 @@ def main(argv):
             # C. Affichage visuel dans la console
             print(f"Tour {tour} | Action: {action_dict['action']} {action_dict.get('argument') or ''} | Pos: {agent.pos_actuelle}")
             afficher_carte_mentale(agent, carte["dimensions"])
-
-            # D. Application de l'action dans le monde réel
-            agent.pos_actuelle, _ = simuler_environnement(
-                carte, agent.pos_actuelle, action_dict
-            )
 
             # E. Enregistrement dans la trace
             trace.ajouter_pas(
@@ -536,18 +663,6 @@ def main(argv):
             )
 
             tour += 1
-
-        # Clôture fictive de la livraison pour ce test de déplacement
-        trace.ajouter_livraison(
-            demande=demande["numero"],
-            resident=id_resident,
-            emotion=agent.emotion_courante,
-            intensite=agent.intensite_courante,
-            casier_choisi=(1, 4),
-            repli="aucun",
-            objet="objet_test",
-            succes=True
-        )
 
     # 4. Écriture du fichier de trace
     trace.ecrire(chemin_sortie)
