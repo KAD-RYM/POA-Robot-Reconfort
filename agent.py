@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 from collections import deque
 from typing import Optional
+from interface import SimulationPygame
 
 import reconfort_io as rio
 import validation as val
@@ -602,25 +603,26 @@ def main(argv):
         print(f"Erreur de chargement : {err}", file=sys.stderr)
         return 1
 
-    # 2. Validation de la structure (quitte avec sys.exit(1) si invalide)
+    # 2. Validation de la structure
     val.valider_carte(carte)
     val.valider_scenario(scenario, carte)
     val.valider_armoire(armoire)
     val.valider_dictionnaire(dictionnaire)
 
-    # 2. Instanciation de l'agent et de la trace
+    # 3. Instanciation de l'agent, de la trace et de l'interface graphique
     agent = AgentReconfort(carte, dictionnaire, armoire)
     trace = rio.Trace(carte["nom"], scenario["nom"], equipe=["Test", "Agent"])
     agent.trace = trace
 
-    # 3. Boucle sur chaque demande du scénario
+    # Initialisation de la GUI Tkinter
+    interface = SimulationPygame(dimensions=carte["dimensions"], cell_size=40)
+
+    # 4. Boucle sur chaque demande du scénario
     for demande in scenario["demandes"]:
         id_resident = demande["resident"]
         pos_res = agent.pos_residents[id_resident]
-        plainte = Plainte(demande, pos_res)  # On garde une référence 'plainte' dans le main
-        agent.plainte_active = plainte
         
-        # Injection de la plainte en cours
+        # Injection de la plainte en cours (doublon nettoyé)
         agent.plainte_active = Plainte(demande, pos_res)
         
         print(f"\n==========================================")
@@ -633,7 +635,7 @@ def main(argv):
 
         # Boucle tour par tour jusqu'à la livraison complète au résident
         while agent.plainte_active is not None:
-            # A. L'environnement simule la perception autour de la position physique
+            # A. L'environnement simule la perception
             agent.pos_actuelle, perceptions_locales = simuler_environnement(
                 carte, agent.pos_actuelle, action_dict
             )
@@ -642,7 +644,7 @@ def main(argv):
                 armoire, agent.casier_selecteur, action_dict
             )
 
-            # Injection de la vision du casier courant dans les perceptions
+            # Injection de la vision du casier
             perceptions_locales["contenu_casier"] = contenu
 
             # B. L'agent décide de son action
@@ -650,7 +652,9 @@ def main(argv):
 
             # C. Affichage visuel dans la console
             print(f"Tour {tour} | Action: {action_dict['action']} {action_dict.get('argument') or ''} | Pos: {agent.pos_actuelle}")
-            afficher_carte_mentale(agent, carte["dimensions"])
+            
+            # D. 📌 Mise à jour graphique en temps réel
+            interface.rafraichir(agent, fps=6)
 
             # E. Enregistrement dans la trace
             trace.ajouter_pas(
@@ -664,9 +668,13 @@ def main(argv):
 
             tour += 1
 
-    # 4. Écriture du fichier de trace
+    # 5. Écriture du fichier de trace
     trace.ecrire(chemin_sortie)
     print(f"\nSimulation terminée avec succès. Trace écrite dans {chemin_sortie}")
+
+    # 5. 📌 Garder l'interface ouverte à la fin
+    interface.attendre_fermeture()
+
     return 0
 
 
