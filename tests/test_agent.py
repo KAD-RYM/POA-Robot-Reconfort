@@ -5,7 +5,7 @@ import unittest
 # Permet d'importer agent.py depuis le dossier parent
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from agent import AgentReconfort, Plainte, simuler_environnement
+from agent import AgentReconfort, Plainte, simuler_environnement, simuler_armoire
 
 class TestRobotDictionnaire(unittest.TestCase):
 
@@ -148,7 +148,7 @@ class TestChoixObjectif(unittest.TestCase):
         self.assertEqual(self.agent.sous_objectif_actuel, "GO_ARMOIRE")
 
         # 3. On simule qu'il a atteint l'armoire
-        self.agent.plainte_active.armoire_atteinte = True
+        self.agent.plainte_active.objet_en_main = True
         cible = self.agent.choisir_objectif()
         self.assertEqual(cible, (3, 3))  # Position résident
         self.assertEqual(self.agent.sous_objectif_actuel, "GO_RESIDENT")
@@ -158,14 +158,14 @@ class TestChoixObjectif(unittest.TestCase):
         
         # On simule que le robot a déjà fait Dico et Armoire pour la plainte 1
         self.agent.plainte_active.dico_atteint = True
-        self.agent.plainte_active.armoire_atteinte = True
+        self.agent.plainte_active.objet_en_main = True
         
         # Il vise le résident 
         self.agent.choisir_objectif() 
         self.assertEqual(self.agent.sous_objectif_actuel, "GO_RESIDENT")
         
         # Il interagit (donne l'objet). Cela doit réinitialiser l'état du robot !
-        action = self.agent.interagir_avec_objectif()
+        action = self.agent.interagir_avec_objectif({})
         self.assertEqual(action["action"], "DONNER")
         self.assertIsNone(self.agent.plainte_active, "Le robot n'a pas supprimé l'ancienne plainte")
         self.assertIsNone(self.agent.sous_objectif_actuel, "Le robot n'a pas réinitialisé son objectif")
@@ -232,6 +232,119 @@ class TestMoteurEnvironnement(unittest.TestCase):
         self.assertEqual(perceptions["O"], "mur")
         self.assertEqual(perceptions["E"], "libre")
         self.assertEqual(perceptions["S"], "mur")
+
+class TestArmoirePlutchik(unittest.TestCase):
+
+    def setUp(self):
+        """Prépare une roue des émotions et des casiers pour tester le tri de l'agent."""
+        carte = {"depart_robot": [0,0], "dictionnaire": {"position": [1,1]}, "armoire": {"position": [2,2]}, "residents": []}
+        armoire = {
+            "casier_depart": [0,0],
+            # La roue officielle de Plutchik dans l'ordre :
+            "emotions": ["Joie", "Confiance", "Peur", "Surprise", "Tristesse", "Degout", "Colere", "Anticipation"],
+            "intensites": ["faible", "moyenne", "forte"],
+            "casiers": [
+                # Casier 1 : Correspondance exacte (Distance 0, Intensité 3) -> DOIT ÊTRE 1er
+                {"ligne": 0, "colonne": 0, "emotion": "Joie", "intensite": "forte"},
+                
+                # Casier 2 : Bonne émotion mais intensité faible (Distance 0, Intensité 1) -> DOIT ÊTRE 2ème
+                {"ligne": 0, "colonne": 1, "emotion": "Joie", "intensite": "faible"},
+                
+                # Casier 3 : Émotion voisine Horaire (Distance 1, Intensité 3) -> DOIT ÊTRE 3ème
+                {"ligne": 0, "colonne": 2, "emotion": "Confiance", "intensite": "forte"},
+                
+                # Casier 4 : Émotion voisine Antihoraire (Distance 1, Intensité 3) -> DOIT ÊTRE 4ème
+                {"ligne": 0, "colonne": 3, "emotion": "Anticipation", "intensite": "forte"},
+                
+                # Casier 5 : Émotion opposée (Distance 4) -> DOIT ÊTRE EXCLU PAR L'ALGO
+                {"ligne": 0, "colonne": 4, "emotion": "Tristesse", "intensite": "forte"}
+            ]
+        }
+        self.agent = AgentReconfort(carte, {"entrees": []}, armoire)
+
+    def test_ordre_tri_plutchik(self):
+        """Vérifie que la génération des candidats respecte strictement les priorités."""
+        # On demande "Joie" et "forte" (Intensité forte = 3)
+        candidats = self.agent.generer_candidats_plutchik("Joie", "forte")
+        
+        # 1. Le casier 5 (Tristesse, distance 4) doit avoir été viré. Il ne doit rester que 4 casiers.
+        self.assertEqual(len(candidats), 4)
+        
+        # 2. Vérification de l'ordre exact : l'algorithme renvoie [(ligne, colonne), emotion, intensite]
+        self.assertEqual(candidats[0][0], (0, 0)) # 1er : L'exact
+        self.assertEqual(candidats[1][0], (0, 1)) # 2ème : La même émotion, mauvaise intensité
+        self.assertEqual(candidats[2][0], (0, 2)) # 3ème : Le voisin Horaire
+        self.assertEqual(candidats[3][0], (0, 3)) # 4ème : Le voisin Antihoraire
+class TestArmoirePhysique(unittest.TestCase):
+
+    def test_bouclage_circulaire_colonnes(self):
+        """Vérifie que le sélecteur traverse bien les murs latéraux de l'armoire (bouclage modulo 8)."""
+        armoire = {"casiers": []} # Armoire vide, on teste juste le déplacement
+        
+        # --- TEST 1 : Dépasser par la droite (Est) ---
+        # Le sélecteur est tout au bout à droite (colonne 7)
+        selecteur_initial = (1, 7)
+        action_est = {"action": "CHERCHER", "argument": "E"}
+        
+        nouveau_selecteur, _ = simuler_armoire(armoire, selecteur_initial, action_est)
+        # Il doit réapparaître colonne 0 !
+        self.assertEqual(nouveau_selecteur, (1, 0))
+        
+        # --- TEST 2 : Dépasser par la gauche (Ouest) ---
+        # Le sélecteur est tout au bout à gauche (colonne 0)
+        selecteur_initial = (2, 0)
+        action_ouest = {"action": "CHERCHER", "argument": "O"}
+        
+        nouveau_selecteur, _ = simuler_armoire(armoire, selecteur_initial, action_ouest)
+        # Il doit réapparaître colonne 7 !
+        self.assertEqual(nouveau_selecteur, (2, 7))
+
+    def test_blocage_vertical(self):
+        """Vérifie qu'on ne peut pas traverser le plafond ou le sol (Ligne 0 à 2)."""
+        armoire = {"casiers": []}
+        
+        # On essaie de monter (N) depuis la ligne tout en haut (Ligne 0)
+        selecteur, _ = simuler_armoire(armoire, (0, 4), {"action": "CHERCHER", "argument": "N"})
+        # Le sélecteur doit rester bloqué en ligne 0
+        self.assertEqual(selecteur, (0, 4))
+
+class TestArmoireMemoire(unittest.TestCase):
+
+    def test_memorisation_casier_vide(self):
+        """Vérifie que l'agent mémorise un casier vide et passe au candidat suivant."""
+        # On prépare un faux agent sur sa plainte
+        carte = {"depart_robot": [0,0], "dictionnaire": {"position": [1,1]}, "armoire": {"position": [2,2]}, "residents": []}
+        armoire = {
+            "casier_depart": [0,0], "emotions": ["Joie"], "intensites": ["forte"],
+            "casiers": [{"ligne": 0, "colonne": 0, "emotion": "Joie", "intensite": "forte"}]
+        }
+        agent = AgentReconfort(carte, {"entrees": []}, armoire)
+        
+        # On simule qu'il est déjà devant l'armoire, prêt à fouiller
+        agent.plainte_active = Plainte({"numero": 1, "resident": "R1", "message": "test"}, (3, 3))
+        agent.plainte_active.emotion = "Joie"
+        agent.plainte_active.intensite = "forte"
+        agent.sous_objectif_actuel = "GO_ARMOIRE"
+        
+        # Le robot et son sélecteur sont pile sur le casier cible
+        agent.casier_selecteur = (0, 0)
+        agent.plainte_active.casier_cible = (0, 0)
+        agent.plainte_active.casiers_a_tester = [((0, 0), "Joie", "forte")]
+        
+        # L'environnement lui dit "Désolé, il n'y a pas d'objet dedans (None)"
+        perceptions = {"contenu_casier": None}
+        
+        # Le robot agit
+        action = agent.interagir_avec_objectif(perceptions)
+        
+        # 1. Il doit avoir ajouté (0,0) à sa liste noire des casiers vides
+        self.assertIn((0, 0), agent.casiers_vides_memoire)
+        
+        # 2. Il a retiré le candidat de sa liste (elle est désormais vide)
+        self.assertEqual(len(agent.plainte_active.casiers_a_tester), 0)
+        
+        # 3. Comme la liste est vide, il doit se mettre en mode "REPLI"
+        self.assertEqual(action["action"], "REPLI")
 
 if __name__ == '__main__':
     unittest.main()

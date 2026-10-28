@@ -224,6 +224,7 @@ class AgentReconfort:
 
             # 2. On clôture la plainte
             self.plainte_active = None
+            self.sous_objectif_actuel = None
             
             return {"action": "DONNER", "argument": plainte.objet_associe}
 
