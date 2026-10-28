@@ -20,7 +20,7 @@ def _valider_entete(donnees: dict, format_attendu: str, version_attendue: int = 
         )
         # Verification du nom 
     if "nom" not in donnees or not isinstance(donnees["nom"], str):
-        erreur_et_quitte(f"Le fichier {donnees} doit contenir un champ 'nom' de type texte.")
+        erreur_et_quitte(f"Le fichier {format_attendu} doit contenir un champ 'nom' de type texte.")
     
 
 
