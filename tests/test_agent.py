@@ -340,11 +340,11 @@ class TestArmoireMemoire(unittest.TestCase):
         # 1. Il doit avoir ajouté (0,0) à sa liste noire des casiers vides
         self.assertIn((0, 0), agent.casiers_vides_memoire)
         
-        # 2. Il a retiré le candidat de sa liste (elle est désormais vide)
-        self.assertEqual(len(agent.plainte_active.casiers_a_tester), 0)
+        # 2. Comme la liste est vide, il abandonne la plainte (elle devient None)
+        self.assertIsNone(agent.plainte_active)
         
-        # 3. Comme la liste est vide, il doit se mettre en mode "REPLI"
-        self.assertEqual(action["action"], "REPLI")
+        # 3. L'action renvoyée lors d'un abandon est ATTENDRE
+        self.assertEqual(action["action"], "ATTENDRE")
 
 if __name__ == '__main__':
     unittest.main()

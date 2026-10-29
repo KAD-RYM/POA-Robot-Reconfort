@@ -81,6 +81,38 @@ class AgentReconfort:
         self.chemin_en_cours = []
         self.sous_objectif_actuel = None
         self.plainte_active = None
+        # Livraison terminée (réussie ou non) que main() doit écrire dans la trace
+        self.livraison_en_attente = None
+        # Résidents déjà atteints au moins une fois : un chemin vers eux est prouvé
+        self.residents_atteints = set()
+
+
+    def abandonner_plainte(self, motif: str, action: Optional[dict] = None) -> dict:
+        """
+        Clôture la plainte en cours sur un échec.
+        motif : "resident inaccessible", "armoire vide" ou "emotion indeterminee".
+        action : l'action jouée ce tour-ci (ATTENDRE par défaut).
+        """
+        plainte = self.plainte_active
+        self.livraison_en_attente = {
+            "demande": plainte.numero,
+            "resident": plainte.id_resident,
+            "emotion": plainte.emotion,
+            "intensite": plainte.intensite,
+            "casier_choisi": None,
+            "repli": "aucun",
+            "objet": None,
+            "succes": False,
+            "motif_echec": motif,
+        }
+
+        print(f"❌ ABANDON de la demande {plainte.numero} ({motif})")
+
+        # On réinitialise le cerveau du robot
+        self.plainte_active = None
+        self.sous_objectif_actuel = None
+
+        return action or {"action": "ATTENDRE", "argument": None}
 
     def choisir_objectif(self):
         """Détermine la cible uniquement en fonction du trajet de la plainte."""
@@ -126,7 +158,10 @@ class AgentReconfort:
             print(f"⚡ Intensité conclue   : {self.plainte_active.intensite}")
             print("=" * 50 + "\n")
 
-            return {"action": "CONSULTER", "argument": None}
+            consulter = {"action": "CONSULTER", "argument": None}
+            if self.plainte_active.emotion is None:
+                return self.abandonner_plainte("emotion indeterminee", consulter)
+            return consulter
 
         elif sous_obj == "GO_ARMOIRE":
             plainte = self.plainte_active
@@ -156,7 +191,7 @@ class AgentReconfort:
 
                 if not plainte.casiers_a_tester:
                     print("⚠️ Tous les casiers candidats sont vides ! (Échec armoire vide)")
-                    return {"action": "REPLI", "argument": None}
+                    return self.abandonner_plainte("armoire vide")
 
                 plainte.casier_cible = plainte.casiers_a_tester[0][0]
                 print(f"🎯 Première cible sélectionnée : {plainte.casier_cible}")
@@ -190,7 +225,7 @@ class AgentReconfort:
 
                     if not plainte.casiers_a_tester:
                         print("⚠️ Tous les casiers candidats de la liste ont été testés sans succès.")
-                        return {"action": "REPLI", "argument": None}
+                        return self.abandonner_plainte("armoire vide")
 
                     plainte.casier_cible = plainte.casiers_a_tester[0][0]
                     print(f"🎯 Nouvelle cible sélectionnée : {plainte.casier_cible}")
@@ -205,18 +240,17 @@ class AgentReconfort:
         elif sous_obj == "GO_RESIDENT":
             plainte = self.plainte_active
 
-            # 1. Enregistrement dynamique immédiat dans la trace
-            if hasattr(self, 'trace') and self.trace is not None:
-                self.trace.ajouter_livraison(
-                    demande=plainte.numero,
-                    resident=plainte.id_resident,
-                    emotion=plainte.emotion,
-                    intensite=plainte.intensite,
-                    casier_choisi=plainte.casier_trouve,
-                    repli=plainte.repli,
-                    objet=plainte.objet_associe,
-                    succes=True
-                )
+            # 1. Préparation de la livraison (main l'écrit après le pas DONNER)
+            self.livraison_en_attente = {
+                "demande": plainte.numero,
+                "resident": plainte.id_resident,
+                "emotion": plainte.emotion,
+                "intensite": plainte.intensite,
+                "casier_choisi": plainte.casier_trouve,
+                "repli": plainte.repli,
+                "objet": plainte.objet_associe,
+                "succes": True,
+            }
 
             print("\n" + "=" * 50)
             print(f"🎁 LIVRAISON RÉUSSIE | Demande #{plainte.numero} | Résident : {plainte.id_resident}")
@@ -345,7 +379,10 @@ class AgentReconfort:
             direction = self.convertir_case_en_direction(self.pos_actuelle, prochaine_case)
             return {"action": "AVANCER", "argument": direction}
 
-        return {"action": "ATTENDRE", "argument": None}
+        else:
+            # Si on n'a pas de chemin, c'est qu'on est coincé ! On abandonne proprement.
+            print("⚠️ Impossible de trouver un chemin vers la cible ! (Résident inaccessible)")
+            return self.abandonner_plainte("resident inaccessible")
 
     def analyser_message(self) -> tuple[str, str]:
         """
@@ -370,7 +407,8 @@ class AgentReconfort:
             if mot_clean in index_dico:
                 return index_dico[mot_clean]
 
-        return "neutre", "moyenne"
+        # Aucun mot reconnu : émotion indéterminée 
+        return None, None
 
     def calculer_distance_emotion(self, e1: str, e2: str) -> int:
         """
@@ -612,7 +650,7 @@ def main(argv):
 
     # 3. Instanciation de l'agent, de la trace et de l'interface graphique
     agent = AgentReconfort(carte, dictionnaire, armoire)
-    trace = rio.Trace(carte["nom"], scenario["nom"], equipe=["Test", "Agent"])
+    trace = rio.Trace(carte["nom"], scenario["nom"], equipe=["Kevin", "Reyam"])
     agent.trace = trace
 
     # Initialisation de la GUI Tkinter
