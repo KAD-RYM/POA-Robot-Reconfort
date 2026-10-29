@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 from collections import deque
 from typing import Optional
-from interface import SimulationPygame
+#from interface import SimulationPygame
 
 import reconfort_io as rio
 import validation as val
@@ -623,8 +623,10 @@ def simuler_armoire(armoire_donnees: dict, casier_selecteur: tuple, action_dict:
     return nouveau_selecteur, contenu_casier
 
 def main(argv):
-    if len(argv) != 5:
-        print("Usage: python agent.py <carte> <scenario> <dossier_donnees> <trace_sortie>", file=sys.stderr)
+    
+    avec_interface = len(argv) == 6 and argv[5] == "--gui"
+    if len(argv) != 5 and not avec_interface:
+        print("Usage: python agent.py <carte> <scenario> <dossier_donnees> <trace_sortie> [--gui]", file=sys.stderr)
         return 2
 
     chemin_carte = Path(argv[1])
@@ -635,26 +637,32 @@ def main(argv):
     # 1. Chargement des fichiers d'entrée
     try:
         carte = rio.charger_carte(chemin_carte)
+        val.valider_carte(carte)
         scenario = rio.charger_scenario(chemin_scenario)
+        val.valider_scenario(scenario, carte)
         dictionnaire = rio.charger_dictionnaire(dossier_donnees / "dictionnaire.json")
+        val.valider_dictionnaire(dictionnaire)
         armoire = rio.charger_armoire(dossier_donnees / f"{scenario['armoire']}.json")
+        val.valider_armoire(armoire)
+        val.valider_coherence_dictionnaire_armoire(dictionnaire, armoire)
     except rio.ErreurFichier as err:
         print(f"Erreur de chargement : {err}", file=sys.stderr)
         return 1
-
-    # 2. Validation de la structure
-    val.valider_carte(carte)
-    val.valider_scenario(scenario, carte)
-    val.valider_armoire(armoire)
-    val.valider_dictionnaire(dictionnaire)
+    except (KeyError, TypeError, ValueError, IndexError, AttributeError) as err:
+        # Filet de sécurité : jamais de traceback pour un fichier mal formé 
+        print(f"ERREUR : fichier d'entrée mal formé ({type(err).__name__} : {err})", file=sys.stderr)
+        return 1
 
     # 3. Instanciation de l'agent, de la trace et de l'interface graphique
     agent = AgentReconfort(carte, dictionnaire, armoire)
-    trace = rio.Trace(carte["nom"], scenario["nom"], equipe=["Kevin", "Reyam"])
-    agent.trace = trace
+    trace = rio.Trace(carte["nom"], scenario["nom"], equipe=["HARAUT Kevin", "KADDOUR Reyam"])
+
 
     # Initialisation de la GUI Tkinter
-    interface = SimulationPygame(dimensions=carte["dimensions"], cell_size=40)
+    interface = None
+    if avec_interface:
+        from interface import SimulationPygame
+        interface = SimulationPygame(dimensions=carte["dimensions"], cell_size=40)
 
     # 4. Boucle sur chaque demande du scénario
     for demande in scenario["demandes"]:
@@ -683,8 +691,13 @@ def main(argv):
                 armoire, agent.casier_selecteur, action_dict
             )
 
+            # Le robot ne voit le casier que s'il est devant l'armoire (section 5.5)
+            devant_armoire = agent.est_adjacent(agent.pos_actuelle, agent.pos_armoire)
+            contenu_visible = contenu if devant_armoire else None
+            perception_cases = dict(perceptions_locales)   # N, S, E, O uniquement
+
             # Injection de la vision du casier
-            perceptions_locales["contenu_casier"] = contenu
+            perceptions_locales["contenu_casier"] = contenu_visible
 
             # B. L'agent décide de son action
             action_dict = agent.decider_action(perceptions_locales)
@@ -692,8 +705,9 @@ def main(argv):
             # C. Affichage visuel dans la console
             print(f"Tour {tour} | Action: {action_dict['action']} {action_dict.get('argument') or ''} | Pos: {agent.pos_actuelle}")
             
-            # D. 📌 Mise à jour graphique en temps réel
-            interface.rafraichir(agent, fps=6)
+            # D. 📌 Mise à jour graphique en temps réel (si --gui)
+            if interface is not None:
+                interface.rafraichir(agent, fps=6)
 
             # E. Enregistrement dans la trace
             trace.ajouter_pas(
@@ -702,8 +716,14 @@ def main(argv):
                 casier=agent.casier_selecteur,
                 action=action_dict["action"],
                 argument=action_dict.get("argument"),
-                perception=perceptions_locales
+                perception=perception_cases,
+                contenu_casier=contenu_visible
             )
+
+            # F. Livraison écrite APRÈS son dernier pas (pas_utilises exact)
+            if agent.livraison_en_attente is not None:
+                trace.ajouter_livraison(**agent.livraison_en_attente)
+                agent.livraison_en_attente = None
 
             tour += 1
 
@@ -711,8 +731,9 @@ def main(argv):
     trace.ecrire(chemin_sortie)
     print(f"\nSimulation terminée avec succès. Trace écrite dans {chemin_sortie}")
 
-    # 5. 📌 Garder l'interface ouverte à la fin
-    interface.attendre_fermeture()
+    # 5. 📌 Garder l'interface ouverte à la fin (seulement en mode --gui)
+    if interface is not None:
+        interface.attendre_fermeture()
 
     return 0
 

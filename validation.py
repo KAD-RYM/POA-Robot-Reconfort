@@ -1,5 +1,9 @@
 import sys
 
+# Ordre de la roue de Plutchik et des intensités 
+EMOTIONS_ROUE = ["joie", "confiance", "peur", "surprise", "tristesse", "degout", "colere", "anticipation"]
+INTENSITES = ["faible", "moyenne", "forte"]
+
 def erreur_et_quitte(message: str) -> None:
     """Affiche le message d'erreur sur stderr et quitte avec le code 1."""
     print(f"ERREUR : {message}", file=sys.stderr)
@@ -209,6 +213,10 @@ def valider_armoire(armoire: dict) -> None:
         erreur_et_quitte("L'armoire doit contenir une liste 'intensites'.")
     if not all(isinstance(e, str) for e in armoire["intensites"]):
         erreur_et_quitte("Toutes les intensites doivent etre des chaines de caracteres.")
+    if armoire["emotions"] != EMOTIONS_ROUE:
+        erreur_et_quitte(f"Emotions de l'armoire inattendues : {armoire['emotions']} (attendu {EMOTIONS_ROUE}).")
+    if armoire["intensites"] != INTENSITES:
+        erreur_et_quitte(f"Intensites de l'armoire inattendues : {armoire['intensites']} (attendu {INTENSITES}).")
     intensites_valides = set(armoire["intensites"])
 
     # 2. Validation du casier de départ
@@ -299,11 +307,15 @@ def valider_dictionnaire(dico: dict) -> None:
     # 1. Validation de la liste des emotions
     if "emotions" not in dico or not isinstance(dico["emotions"], list):
         erreur_et_quitte("Le dictionnaire doit contenir une liste 'emotions'.")
+    if dico["emotions"] != EMOTIONS_ROUE:
+        erreur_et_quitte(f"Emotions du dictionnaire inattendues : {dico['emotions']} (attendu {EMOTIONS_ROUE}).")
     emotions_valides = set(dico["emotions"])
 
     # 2. Validation de la liste des intensites
     if "intensites" not in dico or not isinstance(dico["intensites"], list):
         erreur_et_quitte("Le dictionnaire doit contenir une liste 'intensites'.")
+    if dico["intensites"] != INTENSITES:
+        erreur_et_quitte(f"Intensites du dictionnaire inattendues : {dico['intensites']} (attendu {INTENSITES}).")
     intensites_valides = set(dico["intensites"])
 
     # 3. Validation de la liste des entrees
@@ -336,3 +348,10 @@ def valider_dictionnaire(dico: dict) -> None:
             if mot_clean in formes_visitees:
                 erreur_et_quitte(f"Forme/mot en double dans le dictionnaire : '{mot_clean}'.")
             formes_visitees.add(mot_clean)
+
+def valider_coherence_dictionnaire_armoire(dico: dict, armoire: dict) -> None:
+    """Le dictionnaire et l'armoire doivent parler des mêmes émotions et intensités."""
+    if dico["emotions"] != armoire["emotions"]:
+        erreur_et_quitte("Le dictionnaire et l'armoire n'ont pas la meme liste d'emotions.")
+    if dico["intensites"] != armoire["intensites"]:
+        erreur_et_quitte("Le dictionnaire et l'armoire n'ont pas la meme liste d'intensites.")
