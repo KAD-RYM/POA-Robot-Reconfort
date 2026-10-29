@@ -2,10 +2,13 @@ import sys
 from pathlib import Path
 from collections import deque
 from typing import Optional
+from simulateur import simuler_environnement, simuler_armoire
 #from interface import SimulationPygame
 
 import reconfort_io as rio
 import validation as val
+
+EQUIPE = ["HARAUT Kevin", "KADDOUR Reyam"]
 
 class Plainte:
     """Représente une demande de résident et l'avancement de sa résolution."""
@@ -140,36 +143,29 @@ class AgentReconfort:
             self.sous_objectif_actuel = "GO_RESIDENT"
             return self.plainte_active.pos_resident
 
-    def interagir_avec_objectif(self, perceptions_locales: dict) -> dict:
-        """
-        Déclenché uniquement quand l'agent est adjacent à sa cible.
-        Valide l'étape en cours et renvoie l'action.
-        """
-        sous_obj = self.sous_objectif_actuel
+    def consulter_dictionnaire(self) -> dict:
+        self.plainte_active.dico_atteint = True
+                    
+        # 1. Analyse et stockage direct DANS la plainte active :
+        self.plainte_active.emotion, self.plainte_active.intensite = self.analyser_message()
+        
+        # (Optionnel) Tu peux aussi garder tes variables sur l'agent si tu en as besoin ailleurs :
+        self.emotion_courante = self.plainte_active.emotion
+        self.intensite_courante = self.plainte_active.intensite
 
-        if sous_obj == "GO_DICO":
-            self.plainte_active.dico_atteint = True
-            
-            # 1. Analyse et stockage direct DANS la plainte active :
-            self.plainte_active.emotion, self.plainte_active.intensite = self.analyser_message()
-            
-            # (Optionnel) Tu peux aussi garder tes variables sur l'agent si tu en as besoin ailleurs :
-            self.emotion_courante = self.plainte_active.emotion
-            self.intensite_courante = self.plainte_active.intensite
+        print("\n" + "=" * 50)
+        print("📖 ACTION : CONSULTER le dictionnaire")
+        print(f"💬 Requête normalisée : \"{self.plainte_active.message}\"")
+        print(f"🎯 Émotion conclue    : {self.plainte_active.emotion}")
+        print(f"⚡ Intensité conclue   : {self.plainte_active.intensite}")
+        print("=" * 50 + "\n")
 
-            print("\n" + "=" * 50)
-            print("📖 ACTION : CONSULTER le dictionnaire")
-            print(f"💬 Requête normalisée : \"{self.plainte_active.message}\"")
-            print(f"🎯 Émotion conclue    : {self.plainte_active.emotion}")
-            print(f"⚡ Intensité conclue   : {self.plainte_active.intensite}")
-            print("=" * 50 + "\n")
+        consulter = {"action": "CONSULTER", "argument": None}
+        if self.plainte_active.emotion is None:
+            return self.abandonner_plainte("emotion indeterminee", consulter)
+        return consulter
 
-            consulter = {"action": "CONSULTER", "argument": None}
-            if self.plainte_active.emotion is None:
-                return self.abandonner_plainte("emotion indeterminee", consulter)
-            return consulter
-
-        elif sous_obj == "GO_ARMOIRE":
+    def fouiller_armoire(self, perceptions_locales: dict) -> dict:
             plainte = self.plainte_active
             plainte.armoire_atteinte = True
 
@@ -243,36 +239,50 @@ class AgentReconfort:
             print(f"🕹️ DEPLACEMENT SELECTEUR : Pos Actuelle {self.casier_selecteur} ➔ Cible {plainte.casier_cible} | Action : CHERCHER {direction}")
             
             return {"action": "CHERCHER", "argument": direction}
+
+    def livrer_resident(self) -> dict:
+        plainte = self.plainte_active
+
+        # 1. Préparation de la livraison (main l'écrit après le pas DONNER)
+        self.livraison_en_attente = {
+            "demande": plainte.numero,
+            "resident": plainte.id_resident,
+            "emotion": plainte.emotion,
+            "intensite": plainte.intensite,
+            "casier_choisi": plainte.casier_trouve,
+            "repli": plainte.repli,
+            "objet": plainte.objet_associe,
+            "succes": True,
+        }
+
+        print("\n" + "=" * 50)
+        print(f"🎁 LIVRAISON RÉUSSIE | Demande #{plainte.numero} | Résident : {plainte.id_resident}")
+        print(f"📦 Objet '{plainte.objet_associe}' livré (pris en {plainte.casier_trouve})")
+        print("=" * 50 + "\n")
+
+        # 2. On clôture la plainte
+        self.plainte_active = None
+        self.sous_objectif_actuel = None
         
+        return {"action": "DONNER", "argument": plainte.objet_associe}
+
+    def interagir_avec_objectif(self, perceptions_locales: dict) -> dict:
+        """
+        Déclenché uniquement quand l'agent est adjacent à sa cible.
+        Valide l'étape en cours et renvoie l'action.
+        """
+        sous_obj = self.sous_objectif_actuel
+
+        if sous_obj == "GO_DICO":
+            return self.consulter_dictionnaire()
+        elif sous_obj == "GO_ARMOIRE":
+            return self.fouiller_armoire(perceptions_locales)
         # --- 3. RÉSIDENT (LIVRAISON) ---
         elif sous_obj == "GO_RESIDENT":
-            plainte = self.plainte_active
-
-            # 1. Préparation de la livraison (main l'écrit après le pas DONNER)
-            self.livraison_en_attente = {
-                "demande": plainte.numero,
-                "resident": plainte.id_resident,
-                "emotion": plainte.emotion,
-                "intensite": plainte.intensite,
-                "casier_choisi": plainte.casier_trouve,
-                "repli": plainte.repli,
-                "objet": plainte.objet_associe,
-                "succes": True,
-            }
-
-            print("\n" + "=" * 50)
-            print(f"🎁 LIVRAISON RÉUSSIE | Demande #{plainte.numero} | Résident : {plainte.id_resident}")
-            print(f"📦 Objet '{plainte.objet_associe}' livré (pris en {plainte.casier_trouve})")
-            print("=" * 50 + "\n")
-
-            # 2. On clôture la plainte
-            self.plainte_active = None
-            self.sous_objectif_actuel = None
-            
-            return {"action": "DONNER", "argument": plainte.objet_associe}
-
+            return self.livrer_resident()
         # --- SÉCURITÉ ---
         return {"action": "ATTENDRE", "argument": None}
+
 
     def mettre_a_jour_perceptions(self, perceptions: dict) -> None:
         if not perceptions:
@@ -584,72 +594,6 @@ def afficher_carte_mentale(agent: AgentReconfort, dimensions: dict):
         print(ligne_str)
     print("--------------------------------\n")
 
-def simuler_environnement(carte_donnees: dict, pos_robot: tuple, action_dict: dict) -> tuple[tuple, dict]:
-    l, c = pos_robot
-    
-    # Déplacement
-    if action_dict["action"] == "AVANCER":
-        direction = action_dict["argument"]
-        if direction == "N": l -= 1
-        elif direction == "S": l += 1
-        elif direction == "E": c += 1
-        elif direction == "O": c -= 1
-        pos_robot = (l, c)
-
-    grille_reelle = carte_donnees["grille"]
-    
-    # On associe la direction cardinale aux coordonnées réelles
-    voisins_directions = {
-        "N": (l - 1, c),
-        "S": (l + 1, c),
-        "E": (l, c + 1),
-        "O": (l, c - 1)
-    }
-    
-    symboles_map = {
-        "#": "mur",
-        ".": "libre",
-        "R": "libre",
-        "D": "dictionnaire",
-        "A": "armoire",
-        "P": "resident"
-    }
-
-    perceptions = {}
-    for d, (vl, vc) in voisins_directions.items():
-        if 0 <= vl < len(grille_reelle) and 0 <= vc < len(grille_reelle[0]):
-            symbole = grille_reelle[vl][vc]
-            perceptions[d] = symboles_map.get(symbole, "libre")
-        else:
-            perceptions[d] = "mur"
-
-    return pos_robot, perceptions
-
-def simuler_armoire(armoire_donnees: dict, casier_selecteur: tuple, action_dict: dict) -> tuple[tuple, Optional[str]]:
-    """
-    Gère uniquement le sous-univers de l'armoire (déplacement du sélecteur et contenu du casier).
-    """
-    lig, col = casier_selecteur
-    action = action_dict.get("action")
-    arg = action_dict.get("argument")
-
-    # 1. Mise à jour de la position du sélecteur en cas de CHERCHER
-    if action == "CHERCHER":
-        if arg == "N" and lig > 0: lig -= 1
-        elif arg == "S" and lig < 2: lig += 1
-        elif arg == "E": col = (col + 1) % 8  # Bouclage circulaire
-        elif arg == "O": col = (col - 1) % 8  # Bouclage circulaire
-    
-    nouveau_selecteur = (lig, col)
-
-    # 2. Consultation du contenu du casier courant sous le sélecteur
-    contenu_casier = None
-    for casier in armoire_donnees.get("casiers", []):
-        if casier["ligne"] == lig and casier["colonne"] == col:
-            contenu_casier = casier.get("objet")  # None si vide, str si garni
-            break
-
-    return nouveau_selecteur, contenu_casier
 
 def main(argv):
     
@@ -684,7 +628,7 @@ def main(argv):
 
     # 3. Instanciation de l'agent, de la trace et de l'interface graphique
     agent = AgentReconfort(carte, dictionnaire, armoire)
-    trace = rio.Trace(carte["nom"], scenario["nom"], equipe=["HARAUT Kevin", "KADDOUR Reyam"])
+    trace = rio.Trace(carte["nom"], scenario["nom"], equipe=EQUIPE)
 
 
     # Initialisation de la GUI Tkinter
