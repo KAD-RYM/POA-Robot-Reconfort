@@ -124,6 +124,12 @@ class AgentReconfort:
             self.sous_objectif_actuel = "GO_DICO"
             return self.pos_dico
 
+        # Étape 1 bis : si ce résident n'a jamais été atteint, prouver qu'il est
+        # accessible AVANT de prendre l'objet (sinon le robot resterait chargé)
+        elif (not getattr(self.plainte_active, 'objet_en_main', False) and self.plainte_active.id_resident not in self.residents_atteints):
+            self.sous_objectif_actuel = "VERIF_RESIDENT"
+            return self.plainte_active.pos_resident
+
         # Étape 2 : Se rendre à l'armoire (jusqu'à avoir pris l'objet !)
         elif not getattr(self.plainte_active, 'objet_en_main', False):
             self.sous_objectif_actuel = "GO_ARMOIRE"
@@ -355,6 +361,12 @@ class AgentReconfort:
         pos_cible = self.choisir_objectif()
         if pos_cible is None:
             return {"action": "ATTENDRE", "argument": None}
+
+        # Résident atteint pendant la vérification : on passe directement à l'armoire
+        if self.sous_objectif_actuel == "VERIF_RESIDENT" and self.est_adjacent(self.pos_actuelle, pos_cible):
+            self.residents_atteints.add(self.plainte_active.id_resident)
+            self.chemin_en_cours = []
+            pos_cible = self.choisir_objectif()
 
         # 3. Si on est collé à la cible -> On interagit !
         # (Pour l'armoire, cela va renvoyer CHERCHER E, puis CHERCHER E..., jusqu'à PRENDRE)

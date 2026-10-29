@@ -51,8 +51,8 @@ class TestRobotDictionnaire(unittest.TestCase):
         self.agent.plainte_active = Plainte(demande, (1, 1))
         
         emotion, intensite = self.agent.analyser_message()
-        self.assertEqual(emotion, "neutre")
-        self.assertEqual(intensite, "moyenne")
+        self.assertIsNone(emotion)
+        self.assertIsNone(intensite)
 
     def test_message_deux_mots_connus(self):
          # 'sursaute' (peur) et 'desespoir' (tristesse) sont dans le dico
@@ -141,8 +141,14 @@ class TestChoixObjectif(unittest.TestCase):
         self.assertEqual(cible, (1, 1))
         self.assertEqual(self.agent.sous_objectif_actuel, "GO_DICO")
 
-        # 2. On simule qu'il a atteint le dictionnaire
+        # 2. On simule qu'il a atteint le dictionnaire : résident jamais vu -> vérification
         self.agent.plainte_active.dico_atteint = True
+        cible = self.agent.choisir_objectif()
+        self.assertEqual(cible, (3, 3))  # Position résident
+        self.assertEqual(self.agent.sous_objectif_actuel, "VERIF_RESIDENT")
+
+        # 2 bis. Résident atteint une fois : direction l'armoire
+        self.agent.residents_atteints.add("R1")
         cible = self.agent.choisir_objectif()
         self.assertEqual(cible, (2, 2))  # Position armoire
         self.assertEqual(self.agent.sous_objectif_actuel, "GO_ARMOIRE")
@@ -180,7 +186,8 @@ class TestChoixObjectif(unittest.TestCase):
         self.assertEqual(cible, (1, 1))  # Position du dico définie dans setUp
         self.assertEqual(self.agent.sous_objectif_actuel, "GO_DICO")
         
-        # Et qu'il passe bien à l'armoire ensuite
+        # Et qu'il passe bien à l'armoire ensuite (R2 déjà atteint une fois)
+        self.agent.residents_atteints.add("R2")
         self.agent.plainte_active.dico_atteint = True
         cible = self.agent.choisir_objectif()
         self.assertEqual(cible, (2, 2))  # Position de l'armoire
