@@ -217,6 +217,8 @@ class AgentReconfort:
                     plainte.objet_associe = contenu
                     plainte.casier_trouve = self.casier_selecteur
                     plainte.objet_en_main = True
+                    emotion_casier = plainte.casiers_a_tester[0][1]
+                    plainte.repli = self.calculer_repli(plainte, emotion_casier)
                     
                     # Passage à l'étape suivante : livrer le résident
                     self.sous_objectif_actuel = "GO_RESIDENT"
@@ -421,6 +423,21 @@ class AgentReconfort:
 
         # Aucun mot reconnu : émotion indéterminée 
         return None, None
+
+    def calculer_repli(self, plainte: Plainte, emotion_casier: str) -> str:
+        """
+        Étiquette 'repli' de la trace (section 6.2) pour le casier pris :
+        "aucun" si c'est le casier exact, "intensite" si même émotion,
+        sinon "voisine_1" ou "voisine_2" selon la distance sur la roue.
+        """
+        casier_exact = self.casiers_par_etiquette.get((plainte.emotion, plainte.intensite))
+        if plainte.casier_trouve == casier_exact:
+            return "aucun"
+
+        distance = self.calculer_distance_emotion(plainte.emotion, emotion_casier)
+        if distance == 0:
+            return "intensite"
+        return f"voisine_{distance}"
 
     def calculer_distance_emotion(self, e1: str, e2: str) -> int:
         """
