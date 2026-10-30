@@ -72,6 +72,7 @@ Les tests sont répartis dans trois modules complémentaires au sein du dossier 
   * **Sélecteur de casiers :** Vérification du bouclage circulaire horizontal (colonnes $7 \leftrightarrow 0$) et du blocage vertical sur les bordures (lignes $0$ et $2$).
   * **Mémoire de l'armoire :** Enregistrement des casiers vides pour éviter d'y retourner et basculement vers le candidat suivant.
 
+
 #### 2. Tests d'Intégration & Simulation (`tests/test_simulation.py`)
 
 * **Scénario complet autonome :** Validation bout-en-bout d'une résolution de requête (réception du message, consultation du dictionnaire, vérification du résident, fouille de l'armoire, récupération de l'objet et livraison au résident en moins de 20 tours).
@@ -86,6 +87,10 @@ Vérification que toute donnée corrompue provoque une interruption propre (`sys
 * **Scénario :** Incohérence entre la carte ciblée et la carte fournie, ou demande adressée à un résident inexistant.
 * **Armoire :** Coordonnées de casier hors dimensions ou incohérence des étiquettes émotion/intensité.
 * **Dictionnaire :** Présence d'un même mot dans deux entrées différentes ou émotions/intensités inconnues.
+
+`tests/test_navigation.py` (planification, replanification, résident inaccessible)
+
+`tests/outils_tests.py` (fonctions d'aide partagées).
 
 
 ## Organisation du code

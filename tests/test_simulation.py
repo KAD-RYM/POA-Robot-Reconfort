@@ -1,5 +1,11 @@
+import json
+import subprocess
+import sys
+import tempfile
 import unittest
+from pathlib import Path
 from agent import AgentReconfort, Plainte, simuler_environnement, simuler_armoire
+from outils_tests import RACINE
 
 class TestIntegrationReconfort(unittest.TestCase):
 
@@ -74,3 +80,38 @@ class TestIntegrationReconfort(unittest.TestCase):
         
         # S'est-il bien arrêté sur la case juste à côté du résident en (2, 2) ?
         self.assertEqual(agent.pos_actuelle, (2, 1), "ÉCHEC : Le robot n'est pas au bon endroit à la fin.")
+
+class TestProgrammeFichiersCasses(unittest.TestCase):
+    """Bout en bout (section 5.6) : code non nul, message sur stderr, aucune trace écrite."""
+
+    def lancer(self, scenario_modifie):
+        with tempfile.TemporaryDirectory() as tmp:
+            chemin_scenario = Path(tmp) / "scenario.json"
+            chemin_scenario.write_text(json.dumps(scenario_modifie), encoding="utf-8")
+            chemin_trace = Path(tmp) / "trace.json"
+            resultat = subprocess.run(
+                [sys.executable, str(RACINE / "agent.py"),
+                 str(RACINE / "cartes" / "appartement_01.json"), str(chemin_scenario),
+                 str(RACINE / "donnees"), str(chemin_trace)],
+                capture_output=True, text=True, timeout=30)
+            return resultat, chemin_trace.exists()
+
+    def scenario_valide(self):
+        return json.loads((RACINE / "cartes" / "scenario_01.json").read_text(encoding="utf-8"))
+
+    def test_scenario_sans_armoire(self):
+        scenario = self.scenario_valide()
+        del scenario["armoire"]
+        resultat, trace_ecrite = self.lancer(scenario)
+        self.assertNotEqual(resultat.returncode, 0)
+        self.assertIn("armoire", resultat.stderr)
+        self.assertNotIn("Traceback", resultat.stderr)
+        self.assertFalse(trace_ecrite)
+
+    def test_armoire_introuvable(self):
+        scenario = self.scenario_valide()
+        scenario["armoire"] = "armoire_inexistante"
+        resultat, trace_ecrite = self.lancer(scenario)
+        self.assertNotEqual(resultat.returncode, 0)
+        self.assertNotIn("Traceback", resultat.stderr)
+        self.assertFalse(trace_ecrite)

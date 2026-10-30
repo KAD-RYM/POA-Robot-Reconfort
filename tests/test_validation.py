@@ -3,8 +3,12 @@ import os
 import sys
 import unittest
 import io
+import tempfile
+from pathlib import Path
 import validation as val
+import reconfort_io as rio
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from outils_tests import EMOTIONS, INTENSITES, armoire_pleine
 
 
 class TestValidationFichiers(unittest.TestCase):
@@ -127,8 +131,8 @@ class TestValidationFichiers(unittest.TestCase):
             "format": "robot-reconfort/armoire",
             "version": 1,
             "nom": "arm",
-            "emotions": ["joie"],
-            "intensites": ["faible"],
+            "emotions": EMOTIONS,
+            "intensites": INTENSITES,
             "casier_depart": [0, 0],
             "casiers": [
                 {"ligne": 5, "colonne": 5, "emotion": "joie", "intensite": "faible", "objet": "rien"}
@@ -136,6 +140,7 @@ class TestValidationFichiers(unittest.TestCase):
         }
         with self.assertRaises(SystemExit):
             val.valider_armoire(armoire)
+        self.assertIn("hors de l'armoire", sys.stderr.getvalue())  
 
     # --- 4. TESTS DU DICTIONNAIRE ---
 
@@ -145,8 +150,8 @@ class TestValidationFichiers(unittest.TestCase):
             "format": "robot-reconfort/dictionnaire",
             "version": 1,
             "nom": "dic",
-            "emotions": ["joie", "peur"],
-            "intensites": ["faible"],
+            "emotions": EMOTIONS,
+            "intensites": INTENSITES,
             "entrees": [
                 {"emotion": "joie", "intensite": "faible", "formes": ["cri"]},
                 {"emotion": "peur", "intensite": "faible", "formes": ["cri"]} # Doublon
@@ -154,6 +159,71 @@ class TestValidationFichiers(unittest.TestCase):
         }
         with self.assertRaises(SystemExit):
             val.valider_dictionnaire(dico)
+        self.assertIn("en double", sys.stderr.getvalue())
+
+class TestValidationParCategorie(unittest.TestCase):
+    """Un fichier cassé par catégorie de la section 5.6 non couverte ci-dessus."""
+
+    def setUp(self):
+        self.stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        self.dossier = tempfile.TemporaryDirectory()
+        self.tmp = Path(self.dossier.name)
+
+    def tearDown(self):
+        sys.stderr = self.stderr
+        self.dossier.cleanup()
+
+    def test_fichier_absent(self):
+        with self.assertRaises(rio.ErreurFichier):
+            rio.charger_carte(self.tmp / "nexiste_pas.json")
+
+    def test_fichier_pas_utf8(self):
+        chemin = self.tmp / "latin1.json"
+        chemin.write_bytes('{"format": "robot-reconfort/carte", "nom": "é"}'.encode("latin-1"))
+        with self.assertRaises(rio.ErreurFichier):
+            rio.charger_carte(chemin)
+
+    def test_json_invalide(self):
+        chemin = self.tmp / "casse.json"
+        chemin.write_text('{"format": "robot-reconfort/carte", ', encoding="utf-8")
+        with self.assertRaises(rio.ErreurFichier):
+            rio.charger_carte(chemin)
+
+    def test_mauvais_format_ou_version(self):
+        with self.assertRaises(SystemExit):
+            val.valider_carte({"format": "robot-reconfort/carte", "version": 2, "nom": "x"})
+        with self.assertRaises(SystemExit):
+            val.valider_carte({"format": "autre", "version": 1, "nom": "x"})
+
+    def test_casier_depart_hors_armoire(self):
+        armoire = armoire_pleine()
+        armoire.update({"format": "robot-reconfort/armoire", "version": 1, "nom": "a",
+                        "casier_depart": [3, 0]})
+        with self.assertRaises(SystemExit):
+            val.valider_armoire(armoire)
+
+    def test_etiquette_casier_incoherente(self):
+        armoire = armoire_pleine()
+        armoire.update({"format": "robot-reconfort/armoire", "version": 1, "nom": "a"})
+        armoire["casiers"][0]["emotion"] = "peur"  # le casier [0, 0] est 'joie'
+        with self.assertRaises(SystemExit):
+            val.valider_armoire(armoire)
+
+    def test_emotion_inconnue_dictionnaire(self):
+        dico = {"format": "robot-reconfort/dictionnaire", "version": 1, "nom": "d",
+                "emotions": EMOTIONS, "intensites": INTENSITES,
+                "entrees": [{"formes": ["ravi"], "emotion": "bonheur", "intensite": "forte"}]}
+        with self.assertRaises(SystemExit):
+            val.valider_dictionnaire(dico)
+
+    def test_demande_resident_absent(self):
+        carte = {"nom": "c", "residents": [{"id": "R1", "position": [1, 1]}]}
+        scenario = {"format": "robot-reconfort/scenario", "version": 1, "nom": "s",
+                    "carte": "c", "armoire": "armoire_standard",
+                    "demandes": [{"numero": 1, "resident": "R9", "message": "triste"}]}
+        with self.assertRaises(SystemExit):
+            val.valider_scenario(scenario, carte)
 
 if __name__ == '__main__':
     unittest.main()
