@@ -3,3 +3,4 @@ __pycache__/
 venv/
 sortie.json
 sorties/
+.DS_Store
