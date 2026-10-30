@@ -35,22 +35,14 @@ class SimulationPygame:
         self.charger_anim_chat(cell_size)
 
     def charger_anim_chat(self, cell_size):
-        chemin_chat = "assets/2_Cat_Run-Sheet.png"
+        # Image fixe du chat (une seule frame), chemin relatif à ce fichier
+        chemin_chat = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "cat.png")
         if os.path.exists(chemin_chat):
             try:
-                sheet = pygame.image.load(chemin_chat).convert_alpha()
-                largeur_totale = sheet.get_width()
-                hauteur = sheet.get_height()
-                nb_frames = 8
-                w_frame = largeur_totale // nb_frames
-
-                for i in range(nb_frames):
-                    rect = pygame.Rect(i * w_frame, 0, w_frame, hauteur)
-                    sub = sheet.subsurface(rect)
-                    scaled = pygame.transform.scale(sub, (cell_size, cell_size))
-                    self.frames_chat.append(scaled)
+                image = pygame.image.load(chemin_chat).convert_alpha()
+                self.frames_chat.append(pygame.transform.smoothscale(image, (cell_size, cell_size)))
             except Exception as e:
-                print(f"⚠️ Erreur chargement animation chat : {e}")
+                print(f"⚠️ Erreur chargement image chat : {e}")
 
     def rafraichir(self, agent, fps=8):
         for event in pygame.event.get():
