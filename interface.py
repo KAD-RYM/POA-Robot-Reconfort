@@ -1,5 +1,5 @@
 import pygame
-import sys
+import os
 
 class SimulationPygame:
     def __init__(self, dimensions: dict, cell_size=40):
@@ -7,87 +7,103 @@ class SimulationPygame:
         self.hauteur = dimensions["hauteur"]
         self.largeur = dimensions["largeur"]
         self.cell_size = cell_size
+        self.running = True
 
         self.fenetre = pygame.display.set_mode((
             self.largeur * cell_size, 
             self.hauteur * cell_size
         ))
-        pygame.display.set_caption("Carte Mentale & Déplacement du Robot")
+        pygame.display.set_caption("Simulation Robot Réconfort ")
         self.clock = pygame.time.Clock()
-        self.font = pygame.font.SysFont("Arial", 16, bold=True)
-
-        # Palette de couleurs (RGB)
+        self.font = pygame.font.SysFont("Arial", 14, bold=True)
         self.couleurs = {
-            "inconnu": (26, 26, 26),
-            "libre": (255, 255, 255),
-            "mur": (51, 51, 51),
+            "inconnu": (20, 20, 20),
+            "libre": (240, 240, 240),
+            "mur": (60, 60, 60),
             "D": (52, 152, 219),
             "A": (243, 156, 18),
             "P": (46, 204, 113),
             "robot": (231, 76, 60)
         }
+        self.frames_chat = []
+        self.frame_index = 0
+        self.charger_anim_chat(cell_size)
 
-    def rafraichir(self, agent, fps=15):  # 👈 On gère en FPS (ex: 15 actions par seconde)
+    def charger_anim_chat(self, cell_size):
+        chemin_chat = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "cat.png")
+        if os.path.exists(chemin_chat):
+            try:
+                image = pygame.image.load(chemin_chat).convert_alpha()
+                self.frames_chat.append(pygame.transform.smoothscale(image, (cell_size, cell_size)))
+            except Exception as e:
+                print(f" Erreur chargement image chat : {e}")
+
+    def rafraichir(self, agent, fps=8):
+        if not self.running:
+            return
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                self.running = False
                 pygame.quit()
-                import sys
-                sys.exit()
+                print("Fenêtre fermée : la simulation continue sans affichage.")
+                return
 
-        self.fenetre.fill((17, 17, 17))
+        self.fenetre.fill((10, 10, 10))
+        if self.frames_chat:
+            self.frame_index = (self.frame_index + 1) % len(self.frames_chat)
 
         for l in range(self.hauteur):
             for c in range(self.largeur):
                 pos = (l, c)
-                rect = (c * self.cell_size, l * self.cell_size, self.cell_size, self.cell_size)
+                x = c * self.cell_size
+                y = l * self.cell_size
+                rect = (x, y, self.cell_size, self.cell_size)
+                if pos not in agent.carte_mentale:
+                    pygame.draw.rect(self.fenetre, self.couleurs["inconnu"], rect)
+                    pygame.draw.rect(self.fenetre, (30, 30, 30), rect, 1)
+                    continue
 
-                couleur = self.couleurs["inconnu"]
+                val = agent.carte_mentale[pos]
+                cle_element = "libre"
                 texte = ""
 
-                if pos in agent.carte_mentale:
-                    val = agent.carte_mentale[pos]
-                    if val in ("mur", "#"):
-                        couleur = self.couleurs["mur"]
-                        texte = "#"
-                    elif val in ("libre", "."):
-                        couleur = self.couleurs["libre"]
-                    elif val == "D":
-                        couleur = self.couleurs["D"]
-                        texte = "D"
-                    elif val == "A":
-                        couleur = self.couleurs["A"]
-                        texte = "A"
-                    elif val == "P":
-                        couleur = self.couleurs["P"]
-                        texte = "P"
+                if val in ("mur", "#"):
+                    cle_element = "mur"
+                elif val == "D":
+                    cle_element = "D"
+                    texte = "D"
+                elif val == "A":
+                    cle_element = "A"
+                    texte = "A"
+                elif val == "P":
+                    cle_element = "P"
+                    texte = "P"
+                pygame.draw.rect(self.fenetre, self.couleurs[cle_element], rect)
+                if texte:
+                    txt_surface = self.font.render(texte, True, (255, 255, 255))
+                    self.fenetre.blit(txt_surface, (x + 12, y + 10))
 
                 if pos == agent.pos_actuelle:
-                    couleur = self.couleurs["robot"]
-                    texte = "R"
-
-                pygame.draw.rect(self.fenetre, couleur, rect)
-                pygame.draw.rect(self.fenetre, (68, 68, 68), rect, 1)
-
-                if texte:
-                    surface_texte = self.font.render(texte, True, (255, 255, 255))
-                    text_rect = surface_texte.get_rect(
-                        center=(c * self.cell_size + self.cell_size // 2, 
-                                l * self.cell_size + self.cell_size // 2)
-                    )
-                    self.fenetre.blit(surface_texte, text_rect)
+                    if self.frames_chat:
+                        img = self.frames_chat[self.frame_index]
+                        self.fenetre.blit(img, (x, y))
+                    else:
+                        pygame.draw.rect(self.fenetre, self.couleurs["robot"], rect)
+                        txt_surface = self.font.render("R", True, (255, 255, 255))
+                        self.fenetre.blit(txt_surface, (x + 15, y + 10))
+                pygame.draw.rect(self.fenetre, (50, 50, 50), rect, 1)
 
         pygame.display.flip()
-        self.clock.tick(fps)  # 👈 Régule la vitesse proprement (15 images/sec)
+        self.clock.tick(fps)
 
     def attendre_fermeture(self):
-        """Bloque le script à la fin de la simulation pour garder la fenêtre ouverte."""
-        print("\n🏁 Simulation terminée ! Fermez la fenêtre pour quitter.")
-        
-        attente = True
-        while attente:
+        if not self.running:
+            return
+        print("\nSimulation terminée ! Fermez la fenêtre graphique pour quitter.")
+        while self.running:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    attente = False
-            self.clock.tick(10)  # Limite l'utilisation du processeur
-            
+                    self.running = False
+            self.clock.tick(10)
         pygame.quit()

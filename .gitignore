@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+venv/
+sortie.json
+sorties/
+.DS_Store

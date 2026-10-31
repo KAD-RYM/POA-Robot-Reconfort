@@ -3,7 +3,9 @@ import os
 import sys
 import unittest
 import io
+import tempfile
 import validation as val
+import reconfort_io as rio
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 
@@ -127,8 +129,8 @@ class TestValidationFichiers(unittest.TestCase):
             "format": "robot-reconfort/armoire",
             "version": 1,
             "nom": "arm",
-            "emotions": ["joie"],
-            "intensites": ["faible"],
+            "emotions": ["joie", "confiance", "peur", "surprise", "tristesse", "degout", "colere", "anticipation"],
+            "intensites": ["faible", "moyenne", "forte"],
             "casier_depart": [0, 0],
             "casiers": [
                 {"ligne": 5, "colonne": 5, "emotion": "joie", "intensite": "faible", "objet": "rien"}
@@ -136,6 +138,7 @@ class TestValidationFichiers(unittest.TestCase):
         }
         with self.assertRaises(SystemExit):
             val.valider_armoire(armoire)
+        self.assertIn("hors de l'armoire", sys.stderr.getvalue())
 
     # --- 4. TESTS DU DICTIONNAIRE ---
 
@@ -145,8 +148,8 @@ class TestValidationFichiers(unittest.TestCase):
             "format": "robot-reconfort/dictionnaire",
             "version": 1,
             "nom": "dic",
-            "emotions": ["joie", "peur"],
-            "intensites": ["faible"],
+            "emotions": ["joie", "confiance", "peur", "surprise", "tristesse", "degout", "colere", "anticipation"],
+            "intensites": ["faible", "moyenne", "forte"],
             "entrees": [
                 {"emotion": "joie", "intensite": "faible", "formes": ["cri"]},
                 {"emotion": "peur", "intensite": "faible", "formes": ["cri"]} # Doublon
@@ -154,6 +157,47 @@ class TestValidationFichiers(unittest.TestCase):
         }
         with self.assertRaises(SystemExit):
             val.valider_dictionnaire(dico)
+        self.assertIn("en double", sys.stderr.getvalue())
+    
+    # --- 5. TESTS DE LECTURE ET D'EN-TÊTE ---
+
+    def test_fichier_absent(self):
+        """Teste un fichier qui n'existe pas (Section 5.6)."""
+        with self.assertRaises(rio.ErreurFichier) as erreur:
+            rio.charger_carte("fichier_qui_n_existe_pas.json")
+        self.assertIn("introuvable", str(erreur.exception))
+
+    def test_json_invalide(self):
+        """Teste un fichier dont le JSON est mal écrit (Section 5.6)."""
+        with tempfile.TemporaryDirectory() as dossier:
+            chemin = os.path.join(dossier, "casse.json")
+            with open(chemin, "w", encoding="utf-8") as f:
+                f.write('{"format": "robot-reconfort/carte", ')  # JSON coupé en plein milieu
+            with self.assertRaises(rio.ErreurFichier) as erreur:
+                rio.charger_carte(chemin)
+        self.assertIn("JSON valide", str(erreur.exception))
+
+    def test_mauvaise_version(self):
+        """Teste un fichier avec une version inattendue (Section 5.6)."""
+        carte = {"format": "robot-reconfort/carte", "version": 2, "nom": "test"}
+        with self.assertRaises(SystemExit):
+            val.valider_carte(carte)
+        self.assertIn("Version inattendue", sys.stderr.getvalue())
+
+    def test_casier_depart_hors_armoire(self):
+        """Teste un casier de départ en dehors de l'armoire (Section 5.6)."""
+        armoire = {
+            "format": "robot-reconfort/armoire",
+            "version": 1,
+            "nom": "arm",
+            "emotions": ["joie", "confiance", "peur", "surprise", "tristesse", "degout", "colere", "anticipation"],
+            "intensites": ["faible", "moyenne", "forte"],
+            "casier_depart": [3, 0],  # Il n'y a que les lignes 0, 1 et 2
+            "casiers": []
+        }
+        with self.assertRaises(SystemExit):
+            val.valider_armoire(armoire)
+        self.assertIn("casier_depart", sys.stderr.getvalue())
 
 if __name__ == '__main__':
     unittest.main()
