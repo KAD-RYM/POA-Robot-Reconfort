@@ -10,6 +10,8 @@ import validation as val
 EQUIPE = ["HARAUT Kevin", "KADDOUR Reyam"]
 
 class Plainte:
+    """Une demande d'un résident + où on en est (émotion trouvée, casier visé, objet en main...)
+      On en recrée une à chaque demande"""
     def __init__(self, demande_json: dict, pos_resident: tuple):
         self.numero = demande_json["numero"]
         self.id_resident = demande_json["resident"]
@@ -79,6 +81,8 @@ class AgentReconfort:
 
 
     def abandonner_plainte(self, motif: str, action: Optional[dict] = None) -> dict:
+        """Termine la demande en échec avec son motif (résident inaccessible, armoire vide,
+        émotion indéterminée) et prépare la livraison ratée pour la trace"""
         plainte = self.plainte_active
         self.livraison_en_attente = {
             "demande": plainte.numero,
@@ -100,6 +104,7 @@ class AgentReconfort:
         return action or {"action": "ATTENDRE", "argument": None}
 
     def choisir_objectif(self):
+        """Dans l'ordre : dico -> vérifier le résident -> armoire -> résident. La vérif du résident ne se fait qu'une fois par résident"""
         if self.plainte_active is None:
             return None
 
@@ -444,6 +449,40 @@ class AgentReconfort:
 
         return ""
     
+def afficher_carte_mentale(agent: AgentReconfort, dimensions: dict):
+    """
+    Affiche la grille de la carte mentale en mode texte.
+    R représente la position actuelle du robot.
+    """
+    hauteur = dimensions["hauteur"]
+    largeur = dimensions["largeur"]
+
+    print("\n--- Carte Mentale de l'Agent ---")
+    for l in range(hauteur):
+        ligne_str = ""
+        for c in range(largeur):
+            pos = (l, c)
+            if pos == agent.pos_actuelle:
+                ligne_str += "R "  # Le robot à sa position courante
+            elif pos in agent.carte_mentale:
+                val = agent.carte_mentale[pos]
+                if val in ("mur", "#"):
+                    ligne_str += "# "
+                elif val in ("libre", "."):
+                    ligne_str += ". "
+                elif val == "D":
+                    ligne_str += "D "
+                elif val == "A":
+                    ligne_str += "A "
+                elif val == "P":
+                    ligne_str += "P "
+                else:
+                    ligne_str += "? "
+            else:
+                ligne_str += "  "  # Case encore non perçue
+        print(ligne_str)
+    print("--------------------------------\n")
+    
 def main(argv):
     
     avec_interface = len(argv) == 6 and argv[5] == "--gui"
@@ -508,6 +547,8 @@ def main(argv):
             perception_cases = dict(perceptions_locales) 
 
             perceptions_locales["contenu_casier"] = contenu_visible
+
+            afficher_carte_mentale(agent, carte["dimensions"])
 
             action_dict = agent.decider_action(perceptions_locales)
 

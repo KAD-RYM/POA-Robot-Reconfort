@@ -13,7 +13,7 @@ class SimulationPygame:
             self.largeur * cell_size, 
             self.hauteur * cell_size
         ))
-        pygame.display.set_caption("Simulation Robot Réconfort 🐈")
+        pygame.display.set_caption("Simulation Robot Réconfort ")
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("Arial", 14, bold=True)
         self.couleurs = {
@@ -36,7 +36,7 @@ class SimulationPygame:
                 image = pygame.image.load(chemin_chat).convert_alpha()
                 self.frames_chat.append(pygame.transform.smoothscale(image, (cell_size, cell_size)))
             except Exception as e:
-                print(f"⚠️ Erreur chargement image chat : {e}")
+                print(f" Erreur chargement image chat : {e}")
 
     def rafraichir(self, agent, fps=8):
         if not self.running:
