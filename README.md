@@ -1,41 +1,54 @@
 # Robot de réconfort — HARAUT Kevin & KADDOUR Reyam
 
-Projet de semestre, Master Informatique. Un robot à perception locale
+Projet de semestre, Master Informatique. Un robot qui a qu'une perception 
+locale des quatres cases autour de lui (Nord, Sud, Ouest et Est), il 
 reçoit un message d'un résident lui indiquant son état actuel.
 Consulte un dictionnaire pour analyser le message reçu et en conclure 
 une émotion et une intensité, puis fouille une armoire pour y récupérer 
 l'objet adéquat parmi ceux disponibles, et le rapporte au résident.
 
-Langage : Python — Version : 3.10 ou plus
+- **Langage :**  Python — Version : 3.10 ou plus
+- **Dépendances :**  aucune pour le programme. 
+`pygame` seulement pour l'affichage graphique qui facultatif, s'intalle avec `pip install pygame`, puis ajouter `--gui` en 5e argument de lancement.
 
 ## Lancer
 
+Depuis la racine du projet :
+
+SANS INTERFACE :
+
 ```
-python agent.py <carte.json> <scenario.json> <dossier_donnees> <trace_sortie.json>
+python3 agent.py <carte.json> <scenario.json> <dossier_donnees> <trace_sortie.json>
+```
+
+Exemple sans interface :
+
+```
+python3 agent.py cartes/appartement_01.json cartes/scenario_01.json donnees sortie.json
+```
+
+AVEC INTERFACE :
+
+```
+python3 agent.py <carte.json> <scenario.json> <dossier_donnees> <trace_sortie.json> --gui
 ```
 
 Exemple :
 
 ```
-python agent.py cartes/appartement_01.json cartes/scenario_01.json donnees sortie.json
-```
-
-Dépendances : aucune pour le programme. 
-`pygame` seulement pour l'affichage graphique qui facultatif, s'intalle avec `pip install pygame`, puis ajouter `--gui` en 5e argument de lancement.
-
-Exemple :
-
-```
-python agent.py cartes/appartement_01.json cartes/scenario_01.json donnees sortie.json --gui
+python3 agent.py cartes/appartement_01.json cartes/scenario_01.json donnees sortie.json --gui
 ```
 
 ## Tester
 
+Pour lancer l'intégralité des tests automatisés, exécutez la commande suivante depuis la racine du projet :
+
 ```
 python3 -m unittest discover tests
 ```
+Résultat attendu : `Ran 31 tests ... OK` (sans dépendance externe).
 
-Les tests couvrent la planification (BFS, longueur connue), la replanification
+Les tests couvrent la planification (du meilleure chemin, longueur connue), la replanification
 après découverte d'un mur, la lecture du dictionnaire (une émotion chacune,
 premier mot gagnant, aucun mot), le sélecteur et le bouclage 7↔0, les quatre
 cas de repli, la validation (un fichier cassé par catégorie) et le résident
@@ -44,49 +57,56 @@ inaccessible.
 
 Le projet intègre une suite de tests automatisés basée sur le module standard `unittest`. Elle permet de vérifier la robustesse de l'agent, le bon fonctionnement de la simulation et la conformité stricte aux exigences de validation des entrées (Section 5.6).
 
-### Exécution des tests
+Les tests sont répartis en quatre modules, plus un fichier d'outils partagés :
 
-Pour lancer l'intégralité des tests automatisés, exécutez la commande suivante depuis la racine du projet :
+| Fichier | Tests | Ce qui est vérifié |
+|---|---|---|
+| `tests/test_agent.py` | 18 | dictionnaire, carte mentale, ordre des sous-objectifs, armoire, règle de repli |
+| `tests/test_navigation.py` | 3 | BFS, replanification, résident inaccessible |
+| `tests/test_simulation.py` | 3 | scénario complet, programme lancé sur des fichiers cassés |
+| `tests/test_validation.py` | 16 | un fichier invalide par catégorie (section 5.6) |
+| `tests/outils_tests.py` | — | fonctions d'aide partagées (pas un fichier de tests) |
 
+### 1. Agent (`tests/test_agent.py`)
 
-python3 -m unittest discover tests
+- **Dictionnaire :** un mot connu ; deux mots connus (le premier rencontré l'emporte) ;
+  aucun mot connu (émotion indéterminée) ; un message réel pour chacune des 8 émotions.
+- **Perception et carte mentale :** mise à jour à partir des 4 cases voisines,
+  mémoire conservée après un déplacement, bords de carte.
+- **Sous-objectifs :** ordre `GO_DICO` → `VERIF_RESIDENT` → `GO_ARMOIRE` → `GO_RESIDENT`,
+  enchaînement de plusieurs demandes avec remise à zéro de l'état.
+- **Armoire :** tri des 15 candidats (distance sur la roue, écart d'intensité,
+  intensité faible d'abord, sens horaire) ; sélecteur avec bouclage des colonnes 7 ↔ 0
+  et blocage vertical sur les lignes 0 et 2 ; casiers vides mémorisés.
+- **Règle de repli :** les 4 cas — casier exact garni (`aucun`), autre intensité
+  (`intensite`), émotion voisine (`voisine_1`), aucun casier garni à distance ≤ 2 (`armoire vide`).
 
-### Structure et couverture de la suite de tests
+### 2. Navigation (`tests/test_navigation.py`)
 
-Les tests sont répartis dans trois modules complémentaires au sein du dossier `tests/` :
+- **Planification :** sur la grille de l'annexe B, chemin de longueur connue (6 pas).
+- **Replanification :** un mur découvert sur le trajet prévu donne un contournement.
+- **Résident inaccessible :** résident muré → échec `resident inaccessible`, prouvé
+  **avant** l'armoire : aucun `PRENDRE`, aucun `DONNER`.
 
-#### 1. Mécaniques et Décisions de l'Agent (`tests/test_agent.py`)
+### 3. Simulation (`tests/test_simulation.py`)
 
-* **Analyse de la plainte (Dictionnaire) :**
-  * **Mot clé unique :** Détection exacte de l'émotion et de l'intensité associées.
-  * **Mots multiples :** Prise en compte du premier mot reconnu dans la phrase (priorité d'apparition).
-  * **Absence de mot :** Gestion du cas où aucun mot n'est présent dans le dictionnaire (retourne `None`).
-* **Perception & Carte mentale :**
-  * Mise à jour et mémorisation dynamique des cases observées dans le champ de vision local.
-  * Rétention de la carte mentale après chaque déplacement (persistance des obstacles connus).
-* **Gestion des objectifs & Priorités :**
-  * Respect de l'ordre strict des sous-objectifs : `GO_DICO` $\rightarrow$ `VERIF_RESIDENT` $\rightarrow$ `GO_ARMOIRE` $\rightarrow$ `GO_RESIDENT`.
-  * Enchaînement et réinitialisation de l'état interne lors du traitement successif de plusieurs plaintes.
-* **Fouille de l'Armoire & Physique :**
-  * **Roue des émotions de Plutchik :** Tri des candidats selon la distance émotionnelle et l'intensité.
-  * **Sélecteur de casiers :** Vérification du bouclage circulaire horizontal (colonnes $7 \leftrightarrow 0$) et du blocage vertical sur les bordures (lignes $0$ et $2$).
-  * **Mémoire de l'armoire :** Enregistrement des casiers vides pour éviter d'y retourner et basculement vers le candidat suivant.
+- **Scénario complet :** message → dictionnaire → vérification du résident → armoire →
+  livraison, en un nombre de tours borné.
+- **Programme sur fichiers cassés :** scénario sans armoire, armoire introuvable →
+  code de retour non nul, pas de `Traceback`, aucune trace écrite.
 
-#### 2. Tests d'Intégration & Simulation (`tests/test_simulation.py`)
+### 4. Validation (`tests/test_validation.py`)
 
-* **Scénario complet autonome :** Validation bout-en-bout d'une résolution de requête (réception du message, consultation du dictionnaire, vérification du résident, fouille de l'armoire, récupération de l'objet et livraison au résident en moins de 20 tours).
-* **Replanification dynamique :** Déplacement et contournement automatique lorsque le chemin prévu est bloqué par un mur découvert en cours de route.
-* **Gestion des échecs :** Abandon propre de la mission lorsque le résident est physiquement inaccessible.
+Chaque fichier invalide doit provoquer un arrêt propre (code non nul et message sur
+`stderr`), et le test vérifie que c'est **la bonne erreur** qui est signalée :
 
-#### 3. Validation des Fichiers d'Entrée (`tests/test_validation.py`)
-
-Vérification que toute donnée corrompue provoque une interruption propre (`sys.exit` avec code non nul) et l'affichage d'un message explicatif sur `sys.stderr` (exigences de la section 5.6) :
-
-* **Carte :** Champ obligatoire manquant, grille non rectangulaire, coordonnées hors limites, incohérence entre le symbole de la grille et la position déclarée, ou identifiants de résidents en double.
-* **Scénario :** Incohérence entre la carte ciblée et la carte fournie, ou demande adressée à un résident inexistant.
-* **Armoire :** Coordonnées de casier hors dimensions ou incohérence des étiquettes émotion/intensité.
-* **Dictionnaire :** Présence d'un même mot dans deux entrées différentes ou émotions/intensités inconnues.
-
+- **Lecture :** fichier absent, fichier non UTF-8, JSON invalide, mauvais `format` ou `version`.
+- **Carte :** champ manquant ou de mauvais type, grille non rectangulaire, position hors
+  grille, symbole incohérent avec la position déclarée, identifiant de résident en double.
+- **Scénario :** scénario prévu pour une autre carte, demande adressée à un résident absent.
+- **Armoire :** casier hors dimensions, `casier_depart` hors de l'armoire, étiquette
+  émotion/intensité incohérente.
+- **Dictionnaire :** mot présent dans deux entrées, émotion inconnue.
 
 ## Organisation du code
 
@@ -126,14 +146,23 @@ Vérification que toute donnée corrompue provoque une interruption propre (`sys
 
 ### Ce qui ne fonctionne pas / Limites identifiées
 
-* **Gestion du résident inaccessible avec un objet en main :**
-  Comme l'agent ne vérifie pas l'accessibilité du résident *avant* d'aller à l'armoire, il récupère l'objet en premier. Si le chemin vers le résident se retrouve bloqué par des murs (inaccessible), le robot se retrouve bloqué avec l'objet en main et doit abandonner la livraison après coup.
+* **Détours dus à l'hypothèse du chemin optimal :** le robot fonce vers les zones inconnues en partant du principes 
+  qu'elles sont libres. Dans un appartement en impasses, il peut s'engager dans un couloir sans issue avant de faire demi-tour.
+* **Coût de la vérification du résident :** Le robot est d'abord obligé de vérifier si le résident qui a fait la requêt est
+  accéssible avant d'aller prendre l'objet dans l'armoire, puisque l'option redesposer un objet dans l'armoire n'existe pas. Ce problème ralonge le temps d'exécution et de résolution d'une demande fournit par un résident. 
 * **Replanification réactive uniquement :**
   L'agent replanifie sa trajectoire uniquement lorsqu'il se heurte directement à un mur imprévu sur la case immédiatement suivante, plutôt que d'anticiper un contournement global dès qu'un obstacle obstrue son chemin théorique.
-* **Optimisation de la trajectoire du sélecteur d'armoire :**
-  Le sélecteur d'armoire parcourt la grille de manière linéaire/séquentielle vers les casiers candidats. Il ne calcule pas le chemin physique le plus court (ex: utilisation optimale du bouclage circulaire $7 \leftrightarrow 0$) pour basculer d'un casier à un autre.
+* **Interface graphique :** fermer la fenêtre **pendant** la simulation arrête le programme
+  avant l'écriture de la trace.
+* **Analyse du message rudimentaire :** seul le premier mot reconnu compte. 
+  Les négations et les mots absents du dictionnaire ne sont pas compris.
 * **Absence de re-consultation dynamique du dictionnaire :**
   Si aucun casier de l'armoire ne correspond aux candidats générés lors de la première lecture, l'agent abandonne la plainte au lieu de tenter de réanalyser le message ou d'étendre la recherche à des émotions de repli plus éloignées.
+* **Tests du programme complet :** les tests de validation appellent directement les fonctions
+  de lecture et de validation. Aucun test automatique ne lance `agent.py` en entier sur un
+  fichier cassé.
+
+Si vous avez l'occasion de remarquer des limites ou des disfonctionnement à notre projet, n'hésitez pas à nous en faire part. 
 
 ## Vidéo
 

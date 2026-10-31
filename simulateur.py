@@ -8,7 +8,6 @@ from typing import Optional
 def simuler_environnement(carte_donnees: dict, pos_robot: tuple, action_dict: dict) -> tuple[tuple, dict]:
     l, c = pos_robot
     
-    # Déplacement
     if action_dict["action"] == "AVANCER":
         direction = action_dict["argument"]
         if direction == "N": l -= 1
@@ -19,7 +18,6 @@ def simuler_environnement(carte_donnees: dict, pos_robot: tuple, action_dict: di
 
     grille_reelle = carte_donnees["grille"]
     
-    # On associe la direction cardinale aux coordonnées réelles
     voisins_directions = {
         "N": (l - 1, c),
         "S": (l + 1, c),
@@ -47,23 +45,16 @@ def simuler_environnement(carte_donnees: dict, pos_robot: tuple, action_dict: di
     return pos_robot, perceptions
 
 def simuler_armoire(armoire_donnees: dict, casier_selecteur: tuple, action_dict: dict) -> tuple[tuple, Optional[str]]:
-    """
-    Gère uniquement le sous-univers de l'armoire (déplacement du sélecteur et contenu du casier).
-    """
     lig, col = casier_selecteur
     action = action_dict.get("action")
     arg = action_dict.get("argument")
-
-    # 1. Mise à jour de la position du sélecteur en cas de CHERCHER
     if action == "CHERCHER":
         if arg == "N" and lig > 0: lig -= 1
         elif arg == "S" and lig < 2: lig += 1
-        elif arg == "E": col = (col + 1) % 8  # Bouclage circulaire
-        elif arg == "O": col = (col - 1) % 8  # Bouclage circulaire
+        elif arg == "E": col = (col + 1) % 8 
+        elif arg == "O": col = (col - 1) % 8
     
     nouveau_selecteur = (lig, col)
-
-    # 2. Consultation du contenu du casier courant sous le sélecteur
     contenu_casier = None
     for casier in armoire_donnees.get("casiers", []):
         if casier["ligne"] == lig and casier["colonne"] == col:

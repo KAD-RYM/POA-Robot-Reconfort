@@ -1,5 +1,4 @@
 import pygame
-import sys
 import os
 
 class SimulationPygame:
@@ -17,8 +16,6 @@ class SimulationPygame:
         pygame.display.set_caption("Simulation Robot Réconfort 🐈")
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("Arial", 14, bold=True)
-
-        # Palette de couleurs de base (murs, meubles, brouillard)
         self.couleurs = {
             "inconnu": (20, 20, 20),
             "libre": (240, 240, 240),
@@ -28,14 +25,11 @@ class SimulationPygame:
             "P": (46, 204, 113),
             "robot": (231, 76, 60)
         }
-
-        # Animation du chat (Spritesheet 8 frames)
         self.frames_chat = []
         self.frame_index = 0
         self.charger_anim_chat(cell_size)
 
     def charger_anim_chat(self, cell_size):
-        # Image fixe du chat (une seule frame), chemin relatif à ce fichier
         chemin_chat = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "cat.png")
         if os.path.exists(chemin_chat):
             try:
@@ -45,15 +39,17 @@ class SimulationPygame:
                 print(f"⚠️ Erreur chargement image chat : {e}")
 
     def rafraichir(self, agent, fps=8):
+        if not self.running:
+            return
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
                 pygame.quit()
-                sys.exit()
+                print("Fenêtre fermée : la simulation continue sans affichage.")
+                return
 
         self.fenetre.fill((10, 10, 10))
-
-        # Avancement de la frame d'animation à chaque tour de boucle
         if self.frames_chat:
             self.frame_index = (self.frame_index + 1) % len(self.frames_chat)
 
@@ -63,8 +59,6 @@ class SimulationPygame:
                 x = c * self.cell_size
                 y = l * self.cell_size
                 rect = (x, y, self.cell_size, self.cell_size)
-
-                # 1. Brouillard de guerre (inconnu)
                 if pos not in agent.carte_mentale:
                     pygame.draw.rect(self.fenetre, self.couleurs["inconnu"], rect)
                     pygame.draw.rect(self.fenetre, (30, 30, 30), rect, 1)
@@ -85,14 +79,11 @@ class SimulationPygame:
                 elif val == "P":
                     cle_element = "P"
                     texte = "P"
-
-                # 2. Rendu des cases de base (Couleurs + Lettres)
                 pygame.draw.rect(self.fenetre, self.couleurs[cle_element], rect)
                 if texte:
                     txt_surface = self.font.render(texte, True, (255, 255, 255))
                     self.fenetre.blit(txt_surface, (x + 12, y + 10))
 
-                # 3. Rendu du Robot / Chat animé
                 if pos == agent.pos_actuelle:
                     if self.frames_chat:
                         img = self.frames_chat[self.frame_index]
@@ -101,15 +92,15 @@ class SimulationPygame:
                         pygame.draw.rect(self.fenetre, self.couleurs["robot"], rect)
                         txt_surface = self.font.render("R", True, (255, 255, 255))
                         self.fenetre.blit(txt_surface, (x + 15, y + 10))
-
-                # Quadrillage
                 pygame.draw.rect(self.fenetre, (50, 50, 50), rect, 1)
 
         pygame.display.flip()
         self.clock.tick(fps)
 
     def attendre_fermeture(self):
-        print("\n🏁 Simulation terminée ! Fermez la fenêtre graphique pour quitter.")
+        if not self.running:
+            return
+        print("\nSimulation terminée ! Fermez la fenêtre graphique pour quitter.")
         while self.running:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
