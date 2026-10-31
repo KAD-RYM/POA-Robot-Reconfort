@@ -1,15 +1,15 @@
 # Robot de réconfort — HARAUT Kevin & KADDOUR Reyam
 
-Projet de semestre, Master Informatique. Un robot qui a qu'une perception 
-locale des quatres cases autour de lui (Nord, Sud, Ouest et Est), il 
+Projet de semestre, Master Informatique. Un robot qui n'a qu'une perception 
+locale des quatre cases autour de lui (Nord, Sud, Ouest et Est)
 reçoit un message d'un résident lui indiquant son état actuel.
-Consulte un dictionnaire pour analyser le message reçu et en conclure 
+Il consulte un dictionnaire pour analyser le message reçu et en conclure 
 une émotion et une intensité, puis fouille une armoire pour y récupérer 
 l'objet adéquat parmi ceux disponibles, et le rapporte au résident.
 
 - **Langage :**  Python — Version : 3.10 ou plus
 - **Dépendances :**  aucune pour le programme. 
-`pygame` seulement pour l'affichage graphique qui facultatif, s'intalle avec `pip install pygame`, puis ajouter `--gui` en 5e argument de lancement.
+`pygame` seulement pour l'affichage graphique, qui est facultatif. Il s'installe avec `pip install pygame`, puis il faut ajouter `--gui` en 5e argument de lancement.
 
 ## Lancer
 
@@ -46,9 +46,9 @@ Pour lancer l'intégralité des tests automatisés, exécutez la commande suivan
 ```
 python3 -m unittest discover tests
 ```
-Résultat attendu : `Ran 31 tests ... OK` (sans dépendance externe).
+Résultat attendu : `Ran 32 tests ... OK` (sans dépendance externe).
 
-Les tests couvrent la planification (du meilleure chemin, longueur connue), la replanification
+Les tests couvrent la planification (plus court chemin, longueur connue), la replanification
 après découverte d'un mur, la lecture du dictionnaire (une émotion chacune,
 premier mot gagnant, aucun mot), le sélecteur et le bouclage 7↔0, les quatre
 cas de repli, la validation (un fichier cassé par catégorie) et le résident
@@ -57,15 +57,13 @@ inaccessible.
 
 Le projet intègre une suite de tests automatisés basée sur le module standard `unittest`. Elle permet de vérifier la robustesse de l'agent, le bon fonctionnement de la simulation et la conformité stricte aux exigences de validation des entrées (Section 5.6).
 
-Les tests sont répartis en quatre modules, plus un fichier d'outils partagés :
+Les tests sont répartis en trois modules :
 
 | Fichier | Tests | Ce qui est vérifié |
 |---|---|---|
-| `tests/test_agent.py` | 18 | dictionnaire, carte mentale, ordre des sous-objectifs, armoire, règle de repli |
-| `tests/test_navigation.py` | 3 | BFS, replanification, résident inaccessible |
-| `tests/test_simulation.py` | 3 | scénario complet, programme lancé sur des fichiers cassés |
-| `tests/test_validation.py` | 16 | un fichier invalide par catégorie (section 5.6) |
-| `tests/outils_tests.py` | — | fonctions d'aide partagées (pas un fichier de tests) |
+| `tests/test_agent.py` | 17 | dictionnaire, carte mentale, ordre des sous-objectifs, perception, planification, armoire, règle de repli |
+| `tests/test_simulation.py` | 3 | scénario complet, résident muré (petite grille et grande pièce ouverte) |
+| `tests/test_validation.py` | 12 | un fichier invalide par catégorie (section 5.6) |
 
 ### 1. Agent (`tests/test_agent.py`)
 
@@ -81,7 +79,7 @@ Les tests sont répartis en quatre modules, plus un fichier d'outils partagés :
 - **Règle de repli :** les 4 cas — casier exact garni (`aucun`), autre intensité
   (`intensite`), émotion voisine (`voisine_1`), aucun casier garni à distance ≤ 2 (`armoire vide`).
 
-### 2. Navigation (`tests/test_navigation.py`)
+### 2. Navigation (`tests/test_agent.py` et `tests/test_simulation.py`)
 
 - **Planification :** sur la grille de l'annexe B, chemin de longueur connue (6 pas).
 - **Replanification :** un mur découvert sur le trajet prévu donne un contournement.
@@ -92,21 +90,20 @@ Les tests sont répartis en quatre modules, plus un fichier d'outils partagés :
 
 - **Scénario complet :** message → dictionnaire → vérification du résident → armoire →
   livraison, en un nombre de tours borné.
-- **Programme sur fichiers cassés :** scénario sans armoire, armoire introuvable →
-  code de retour non nul, pas de `Traceback`, aucune trace écrite.
+- **Résident muré dans une grande pièce :** résident enfermé au milieu d'une pièce ouverte →
+  le robot abandonne en moins de 200 tours (BFS borné à la grille).
 
 ### 4. Validation (`tests/test_validation.py`)
 
 Chaque fichier invalide doit provoquer un arrêt propre (code non nul et message sur
 `stderr`), et le test vérifie que c'est **la bonne erreur** qui est signalée :
 
-- **Lecture :** fichier absent, fichier non UTF-8, JSON invalide, mauvais `format` ou `version`.
+- **Lecture :** fichier absent, JSON invalide, mauvaise `version`.
 - **Carte :** champ manquant ou de mauvais type, grille non rectangulaire, position hors
   grille, symbole incohérent avec la position déclarée, identifiant de résident en double.
-- **Scénario :** scénario prévu pour une autre carte, demande adressée à un résident absent.
-- **Armoire :** casier hors dimensions, `casier_depart` hors de l'armoire, étiquette
-  émotion/intensité incohérente.
-- **Dictionnaire :** mot présent dans deux entrées, émotion inconnue.
+- **Scénario :** scénario prévu pour une autre carte.
+- **Armoire :** casier hors dimensions, `casier_depart` hors de l'armoire.
+- **Dictionnaire :** mot présent dans deux entrées.
 
 ## Organisation du code
 
@@ -115,8 +112,8 @@ Chaque fichier invalide doit provoquer un arrêt propre (code non nul et message
 | `agent.py` | Contient le comportement de l'agent (perception locale, carte mentale, prise de décision) et orchestre l'exécution dans la boucle principale (main).|
 | `simulateur.py` |Modélise l'environnement global : gère la grille, le contenu des conteneurs et traite les actions de l'agent en lui envoyant ses perceptions locales.|
 | `validation.py` |Contrôle la conformité des fichiers d'entrée (JSON, grille, objets) selon la section 5.6 et interrompt proprement le programme avec un message sur la sortie d'erreur en cas d'anomalie.|
-| `reconfort_io.py` |Gère les E/S (charge les 4 fichiers d'entrée et génère la trace de sortie) ; sert de base minimale à compléter pour les validations. (base fournie)|
-| `interface.py` |affichage pygame facultatif avec un 5ème argument (`--gui`)|
+| `reconfort_io.py` |Gère les E/S (charge les 4 fichiers d'entrée et génère la trace de sortie). (base fournie)|
+| `interface.py` | Affichage pygame facultatif avec un 5ème argument (`--gui`).|
 | `tests/` |Dossier contenant la suite de tests automatisés pour vérifier la robustesse et la conformité du projet.|
 
 ## État
@@ -126,10 +123,10 @@ Chaque fichier invalide doit provoquer un arrêt propre (code non nul et message
 * **Architecture globale et orchestration (`reconfort_io.py`, `agent.py`, `simulateur.py`) :**
   * Chargement conforme des 4 fichiers d'entrée.
   * Boucle de simulation principale.
-  * Génération exacte de la trace de sortie et rendu graphique interactif en Pygame avec orientation dynamique du sprite.
+  * Génération exacte de la trace de sortie et affichage graphique facultatif en Pygame (le robot est représenté par un chat).
 * **Navigation et exploration locale :**
   * Découverte progressive de la carte par champ de vision restreint (brouillard de guerre) et construction continue d'une carte mentale.
-  * Planification de chemin (BFS) sur les zones connues avec contournement des obstacles.
+  * Planification de chemin (BFS) sur la carte mentale, limitée aux dimensions de la grille, avec contournement des obstacles.
 * **Résolution méthodique des requêtes :**
   * Enchaînement strict des sous-objectifs : `GO_DICO` $\rightarrow$ `VERIF_RESIDENT` $\rightarrow$ `GO_ARMOIRE` $\rightarrow$ `GO_RESIDENT`.
   * Analyse du message textuel par consultation du dictionnaire (priorité d'apparition des mots-clés).
@@ -146,23 +143,17 @@ Chaque fichier invalide doit provoquer un arrêt propre (code non nul et message
 
 ### Ce qui ne fonctionne pas / Limites identifiées
 
-* **Détours dus à l'hypothèse du chemin optimal :** le robot fonce vers les zones inconnues en partant du principes 
+* **Détours dus à l'hypothèse optimiste :** le robot fonce vers les zones inconnues en partant du principe 
   qu'elles sont libres. Dans un appartement en impasses, il peut s'engager dans un couloir sans issue avant de faire demi-tour.
-* **Coût de la vérification du résident :** Le robot est d'abord obligé de vérifier si le résident qui a fait la requêt est
-  accéssible avant d'aller prendre l'objet dans l'armoire, puisque l'option redesposer un objet dans l'armoire n'existe pas. Ce problème ralonge le temps d'exécution et de résolution d'une demande fournit par un résident. 
-* **Replanification réactive uniquement :**
-  L'agent replanifie sa trajectoire uniquement lorsqu'il se heurte directement à un mur imprévu sur la case immédiatement suivante, plutôt que d'anticiper un contournement global dès qu'un obstacle obstrue son chemin théorique.
-* **Interface graphique :** fermer la fenêtre **pendant** la simulation arrête le programme
-  avant l'écriture de la trace.
+* **Coût de la vérification du résident :** Le robot est d'abord obligé de vérifier si le résident qui a fait la requête est
+  accessible avant d'aller prendre l'objet dans l'armoire, puisque l'option redéposer un objet dans l'armoire n'existe pas. Ce problème rallonge le temps d'exécution et de résolution d'une demande par un résident. 
+* **Replanification complète :**
+  Quand la prochaine case du chemin se révèle être un mur, le BFS est relancé entièrement au lieu de réparer le plan localement : simple et sûr, mais plus de calcul sur une grande carte.
 * **Analyse du message rudimentaire :** seul le premier mot reconnu compte. 
   Les négations et les mots absents du dictionnaire ne sont pas compris.
-* **Absence de re-consultation dynamique du dictionnaire :**
-  Si aucun casier de l'armoire ne correspond aux candidats générés lors de la première lecture, l'agent abandonne la plainte au lieu de tenter de réanalyser le message ou d'étendre la recherche à des émotions de repli plus éloignées.
 * **Tests du programme complet :** les tests de validation appellent directement les fonctions
   de lecture et de validation. Aucun test automatique ne lance `agent.py` en entier sur un
   fichier cassé.
-
-Si vous avez l'occasion de remarquer des limites ou des disfonctionnement à notre projet, n'hésitez pas à nous en faire part. 
 
 ## Vidéo
 

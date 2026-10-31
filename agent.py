@@ -171,6 +171,8 @@ class AgentReconfort:
 
         if self.casier_selecteur == plainte.casier_cible:
             if contenu:
+
+                print("\n" + "-" * 100)
                 print(f"OBJET TROUVE : '{contenu}'")
                 print(f"CASIER CIBLE ATTEINT : {self.casier_selecteur}")
                 print(f"CIBLE INITIALE : {plainte.casier_cible}")
@@ -514,7 +516,7 @@ def main(argv):
 
             if act_nom == "CHERCHER":
                 cible = agent.plainte_active.casier_cible if agent.plainte_active else "?"
-                print(f"Tour {tour:<2} | Action: DEPLACER CELECTEUR ARMOIRE {act_arg} : Pos Actuelle {agent.casier_selecteur} vers Cible {cible}")
+                print(f"Tour {tour:<2} | Action: DEPLACER SELECTEUR ARMOIRE {act_arg} : Pos Actuelle {agent.casier_selecteur} vers Cible {cible}")
             elif act_nom == "PRENDRE":
                 print(f"Tour {tour:<2} | Action: PRENDRE {act_arg} | Casier: {agent.casier_selecteur}")
             else:
