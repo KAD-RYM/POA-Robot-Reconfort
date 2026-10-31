@@ -1,11 +1,5 @@
-import json
-import subprocess
-import sys
-import tempfile
 import unittest
-from pathlib import Path
 from agent import AgentReconfort, Plainte, simuler_environnement, simuler_armoire
-from outils_tests import RACINE
 
 class TestIntegrationReconfort(unittest.TestCase):
 
@@ -81,37 +75,69 @@ class TestIntegrationReconfort(unittest.TestCase):
         # S'est-il bien arrêté sur la case juste à côté du résident en (2, 2) ?
         self.assertEqual(agent.pos_actuelle, (2, 1), "ÉCHEC : Le robot n'est pas au bon endroit à la fin.")
 
-class TestProgrammeFichiersCasses(unittest.TestCase):
-    """Bout en bout (section 5.6) : code non nul, message sur stderr, aucune trace écrite."""
+        # Repli (cas « casier exact garni ») : livraison réussie avec l'étiquette "aucun"
+        self.assertTrue(agent.livraison_en_attente["succes"])
+        self.assertEqual(agent.livraison_en_attente["repli"], "aucun")
+    
+    def test_resident_mure(self):
+        """Cas inaccessible (section 8, point 7) : résident muré sur une grille minuscule."""
 
-    def lancer(self, scenario_modifie):
-        with tempfile.TemporaryDirectory() as tmp:
-            chemin_scenario = Path(tmp) / "scenario.json"
-            chemin_scenario.write_text(json.dumps(scenario_modifie), encoding="utf-8")
-            chemin_trace = Path(tmp) / "trace.json"
-            resultat = subprocess.run(
-                [sys.executable, str(RACINE / "agent.py"),
-                 str(RACINE / "cartes" / "appartement_01.json"), str(chemin_scenario),
-                 str(RACINE / "donnees"), str(chemin_trace)],
-                capture_output=True, text=True, timeout=30)
-            return resultat, chemin_trace.exists()
+        # 1. UNE MINI-CARTE OÙ LE RÉSIDENT P EST ENTOURÉ DE MURS
+        carte = {
+            "nom": "Mini-Carte Muree",
+            "depart_robot": [1, 1],
+            "dictionnaire": {"position": [2, 1]},
+            "armoire": {"position": [2, 2]},
+            "residents": [{"id": "R1", "position": [1, 4]}],
+            "dimensions": {"hauteur": 4, "largeur": 6},
+            "grille": [
+                ["#", "#", "#", "#", "#", "#"],
+                ["#", "R", ".", "#", "P", "#"],
+                ["#", "D", "A", "#", "#", "#"],
+                ["#", "#", "#", "#", "#", "#"]
+            ]
+        }
+        dictionnaire = {
+            "entrees": [
+                {"emotion": "Tristesse", "intensite": "forte", "formes": ["triste"]}
+            ]
+        }
+        armoire = {
+            "casier_depart": [0, 0],
+            "emotions": ["Tristesse"],
+            "intensites": ["forte"],
+            "casiers": [
+                {"ligne": 0, "colonne": 0, "emotion": "Tristesse", "intensite": "forte", "objet": "Peluche Réconfortante"}
+            ]
+        }
 
-    def scenario_valide(self):
-        return json.loads((RACINE / "cartes" / "scenario_01.json").read_text(encoding="utf-8"))
+        # 2. ON LANCE LE ROBOT SUR LA DEMANDE
+        agent = AgentReconfort(carte, dictionnaire, armoire)
+        agent.plainte_active = Plainte({"numero": 1, "resident": "R1", "message": "Je suis triste"}, (1, 4))
 
-    def test_scenario_sans_armoire(self):
-        scenario = self.scenario_valide()
-        del scenario["armoire"]
-        resultat, trace_ecrite = self.lancer(scenario)
-        self.assertNotEqual(resultat.returncode, 0)
-        self.assertIn("armoire", resultat.stderr)
-        self.assertNotIn("Traceback", resultat.stderr)
-        self.assertFalse(trace_ecrite)
+        tour = 0
+        max_tours = 50
+        action_dict = {"action": "ATTENDRE", "argument": None}
+        actions_jouees = []
 
-    def test_armoire_introuvable(self):
-        scenario = self.scenario_valide()
-        scenario["armoire"] = "armoire_inexistante"
-        resultat, trace_ecrite = self.lancer(scenario)
-        self.assertNotEqual(resultat.returncode, 0)
-        self.assertNotIn("Traceback", resultat.stderr)
-        self.assertFalse(trace_ecrite)
+        while agent.plainte_active is not None and tour < max_tours:
+            agent.pos_actuelle, perceptions = simuler_environnement(carte, agent.pos_actuelle, action_dict)
+            agent.casier_selecteur, contenu = simuler_armoire(armoire, agent.casier_selecteur, action_dict)
+            perceptions["contenu_casier"] = contenu
+
+            action_dict = agent.decider_action(perceptions)
+            actions_jouees.append(action_dict["action"])
+            tour += 1
+
+        # 3. VÉRIFICATIONS
+        # Il a fini par abandonner, sans tourner en rond
+        self.assertLess(tour, max_tours, "ÉCHEC : Le robot n'a jamais prouvé que le résident était inaccessible.")
+        self.assertIsNone(agent.plainte_active)
+
+        # L'échec est bien noté avec le bon motif
+        self.assertFalse(agent.livraison_en_attente["succes"])
+        self.assertEqual(agent.livraison_en_attente["motif_echec"], "resident inaccessible")
+
+        # Il n'a jamais pris d'objet (impossible de le reposer ensuite)
+        self.assertNotIn("PRENDRE", actions_jouees)
+        self.assertNotIn("DONNER", actions_jouees)

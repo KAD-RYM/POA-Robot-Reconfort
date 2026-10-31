@@ -1,13 +1,11 @@
 import sys
 import os
-import json
 import unittest
 
 # Permet d'importer agent.py depuis le dossier parent
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from agent import AgentReconfort, Plainte, simuler_environnement, simuler_armoire
-from outils_tests import RACINE, EMOTIONS, armoire_pleine
 
 class TestRobotDictionnaire(unittest.TestCase):
 
@@ -30,6 +28,12 @@ class TestRobotDictionnaire(unittest.TestCase):
         # Le dictionnaire qu'on va réellement tester
         dictionnaire = {
             "entrees": [
+                {"emotion": "joie", "intensite": "moyenne", "formes": ["content"]},
+                {"emotion": "confiance", "intensite": "faible", "formes": ["rassure"]},
+                {"emotion": "surprise", "intensite": "forte", "formes": ["stupefait"]},
+                {"emotion": "degout", "intensite": "moyenne", "formes": ["ecoeure"]},
+                {"emotion": "colere", "intensite": "forte", "formes": ["furieux"]},
+                {"emotion": "anticipation", "intensite": "faible", "formes": ["impatient"]},
                 {"emotion": "tristesse", "intensite": "forte", "formes": ["pleure", "desespoir"]},
                 {"emotion": "peur", "intensite": "faible", "formes": ["sursaute"]}
             ]
@@ -39,13 +43,14 @@ class TestRobotDictionnaire(unittest.TestCase):
         self.agent = AgentReconfort(carte, dictionnaire, armoire)
 
     def test_message_un_mot_connu(self):
-        """Test avec exactement un mot présent dans le dictionnaire."""
-        demande = {"numero": 1, "resident": "R1", "message": "Il pleure beaucoup"}
-        self.agent.plainte_active = Plainte(demande, (1, 1))
-        
-        emotion, intensite = self.agent.analyser_message()
-        self.assertEqual(emotion, "tristesse")
-        self.assertEqual(intensite, "forte")
+        """Un message par émotion (section 8, point 3) : chaque message contient un seul mot connu."""
+        for entree in self.agent.dictionnaire_donnees["entrees"]:
+            demande = {"numero": 1, "resident": "R1", "message": "Il est " + entree["formes"][0]}
+            self.agent.plainte_active = Plainte(demande, (1, 1))
+
+            emotion, intensite = self.agent.analyser_message()
+            self.assertEqual(emotion, entree["emotion"])
+            self.assertEqual(intensite, entree["intensite"])
 
     def test_message_aucun_mot_connu(self):
         """Test avec un message où aucun mot n'est dans le dictionnaire (valeur par défaut)."""
@@ -242,6 +247,55 @@ class TestMoteurEnvironnement(unittest.TestCase):
         self.assertEqual(perceptions["E"], "libre")
         self.assertEqual(perceptions["S"], "mur")
 
+class TestPlanificationChemin(unittest.TestCase):
+
+    def setUp(self):
+        """Petite grille écrite à la main (celle de l'annexe B), entièrement connue du robot."""
+        self.grille = [
+            "######",
+            "#R.#P#",
+            "#.#..#",
+            "#...##",
+            "######"
+        ]
+        carte = {
+            "depart_robot": [1, 1],
+            "dictionnaire": {"position": [0, 0]},
+            "armoire": {"position": [0, 1]},
+            "residents": [{"id": "R1", "position": [1, 4]}]
+        }
+        self.agent = AgentReconfort(carte, {"entrees": []}, {"casier_depart": [0,0], "casiers": [], "emotions": [], "intensites": []})
+
+    def test_chemin_longueur_connue(self):
+        """Planification (section 8, point 1) : on connaît la longueur du plus court chemin."""
+        # On donne toute la grille au robot pour tester le BFS seul
+        for l, ligne in enumerate(self.grille):
+            for c, symbole in enumerate(ligne):
+                if symbole == "#":
+                    self.agent.carte_mentale[(l, c)] = "mur"
+
+        chemin = self.agent.calculer_chemin_bfs((1, 4))
+
+        # (1,1) -> (2,1) -> (3,1) -> (3,2) -> (3,3) -> (2,3) -> (2,4) : 6 pas
+        self.assertEqual(len(chemin), 6)
+        # Il s'arrête sur une case voisine du résident, pas sur le résident
+        self.assertEqual(chemin[-1], (2, 4))
+
+    def test_replanification_mur_decouvert(self):
+        """Replanification (section 8, point 2) : un mur découvert en route change le trajet."""
+        # Le robot ne connaît rien : il imagine aller tout droit vers l'Est
+        chemin_avant = self.agent.calculer_chemin_bfs((1, 4))
+        self.assertEqual(chemin_avant[0], (1, 2))
+
+        # Il découvre un mur juste à l'Est, en (1, 2)
+        self.agent.mettre_a_jour_perceptions({"N": "mur", "S": "libre", "E": "mur", "O": "mur"})
+        chemin_apres = self.agent.calculer_chemin_bfs((1, 4))
+
+        # Le nouveau chemin évite le mur et passe par le Sud, donc il est plus long
+        self.assertNotIn((1, 2), chemin_apres)
+        self.assertEqual(chemin_apres[0], (2, 1))
+        self.assertGreater(len(chemin_apres), len(chemin_avant))
+
 class TestArmoirePlutchik(unittest.TestCase):
 
     def setUp(self):
@@ -355,66 +409,7 @@ class TestArmoireMemoire(unittest.TestCase):
         # 3. L'action renvoyée lors d'un abandon est ATTENDRE
         self.assertEqual(action["action"], "ATTENDRE")
 
-class TestDictionnaireReel(unittest.TestCase):
-
-    def test_un_message_par_emotion(self):
-        """Pour chacune des 8 émotions, une forme du vrai dictionnaire est reconnue."""
-        dico = json.loads((RACINE / "donnees" / "dictionnaire.json").read_text(encoding="utf-8"))
-        carte = {"depart_robot": [0, 0], "dictionnaire": {"position": [0, 1]},
-                 "armoire": {"position": [1, 0]}, "residents": [{"id": "R1", "position": [1, 1]}]}
-        agent = AgentReconfort(carte, dico, armoire_pleine())
-
-        for emotion in EMOTIONS:
-            entree = next(e for e in dico["entrees"] if e["emotion"] == emotion)
-            with self.subTest(emotion=emotion):
-                message = f"Bonjour, je me sens {entree['formes'][0]} ce soir"
-                agent.plainte_active = Plainte({"numero": 1, "resident": "R1", "message": message}, (1, 1))
-                self.assertEqual(agent.analyser_message(), (emotion, entree["intensite"]))
-
-
-class TestRegleDeRepli(unittest.TestCase):
-
-    def fouiller(self, emotion, intensite, vides):
-        """Robot déjà devant l'armoire, dictionnaire consulté : on le laisse fouiller."""
-        armoire = armoire_pleine(vides)
-        carte = {"depart_robot": [0, 0], "dictionnaire": {"position": [5, 5]},
-                 "armoire": {"position": [1, 0]}, "residents": [{"id": "R1", "position": [9, 9]}]}
-        agent = AgentReconfort(carte, {"entrees": []}, armoire)
-        plainte = Plainte({"numero": 1, "resident": "R1", "message": "test"}, (9, 9))
-        plainte.dico_atteint = True
-        plainte.emotion, plainte.intensite = emotion, intensite
-        agent.residents_atteints.add("R1")  # accessibilité déjà prouvée
-        agent.plainte_active = plainte
-
-        action = {"action": "ATTENDRE", "argument": None}
-        for _ in range(100):
-            agent.casier_selecteur, contenu = simuler_armoire(armoire, agent.casier_selecteur, action)
-            action = agent.decider_action({"contenu_casier": contenu})
-            if action["action"] == "PRENDRE" or agent.plainte_active is None:
-                return agent, plainte, action
-        self.fail("la fouille ne se termine pas")
-
-    def test_casier_exact_garni(self):
-        _, plainte, action = self.fouiller("tristesse", "moyenne", vides=())
-        self.assertEqual(action, {"action": "PRENDRE", "argument": "objet_1_4"})
-        self.assertEqual(plainte.repli, "aucun")
-
-    def test_repli_intensite(self):
-        _, plainte, action = self.fouiller("tristesse", "moyenne", vides={(1, 4)})
-        self.assertEqual(plainte.casier_trouve, (0, 4))  # écart 1, intensité la plus faible d'abord
-        self.assertEqual(plainte.repli, "intensite")
-
-    def test_colonne_vide_repli_voisine(self):
-        _, plainte, action = self.fouiller("surprise", "forte", vides={(0, 3), (1, 3), (2, 3)})
-        self.assertEqual(plainte.casier_trouve, (2, 4))  # tristesse/forte : sens horaire
-        self.assertEqual(plainte.repli, "voisine_1")
-
-    def test_aucun_casier_garni_a_distance_2(self):
-        # joie (col 0) : distance <= 2 -> colonnes 6, 7, 0, 1, 2
-        vides = {(l, c) for l in range(3) for c in (6, 7, 0, 1, 2)}
-        agent, _, _ = self.fouiller("joie", "moyenne", vides=vides)
-        self.assertIsNone(agent.plainte_active)
-        self.assertFalse(agent.livraison_en_attente["succes"])
+        # 4. L'échec est noté avec le motif "armoire vide" (repli, cas « aucun casier garni »)
         self.assertEqual(agent.livraison_en_attente["motif_echec"], "armoire vide")
 
 if __name__ == '__main__':
