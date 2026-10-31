@@ -412,5 +412,61 @@ class TestArmoireMemoire(unittest.TestCase):
         # 4. L'échec est noté avec le motif "armoire vide" (repli, cas « aucun casier garni »)
         self.assertEqual(agent.livraison_en_attente["motif_echec"], "armoire vide")
 
+class TestRegleRepli(unittest.TestCase):
+
+    def setUp(self):
+        """Armoire 3 x 8 complète : chaque casier contient l'objet 'objet_ligne_colonne'."""
+        emotions = ["joie", "confiance", "peur", "surprise", "tristesse", "degout", "colere", "anticipation"]
+        intensites = ["faible", "moyenne", "forte"]
+        self.armoire = {"casier_depart": [1, 0], "emotions": emotions, "intensites": intensites, "casiers": []}
+        for l in range(3):
+            for c in range(8):
+                self.armoire["casiers"].append(
+                    {"ligne": l, "colonne": c, "emotion": emotions[c], "intensite": intensites[l], "objet": f"objet_{l}_{c}"}
+                )
+
+    def vider(self, *positions):
+        """Vide les casiers donnés (objet = None)."""
+        for casier in self.armoire["casiers"]:
+            if (casier["ligne"], casier["colonne"]) in positions:
+                casier["objet"] = None
+
+    def fouiller(self, emotion, intensite):
+        """Le robot est devant l'armoire et fouille jusqu'à prendre un objet."""
+        carte = {"depart_robot": [0,0], "dictionnaire": {"position": [1,1]}, "armoire": {"position": [2,2]}, "residents": []}
+        agent = AgentReconfort(carte, {"entrees": []}, self.armoire)
+        agent.plainte_active = Plainte({"numero": 1, "resident": "R1", "message": "test"}, (3, 3))
+        agent.plainte_active.emotion = emotion
+        agent.plainte_active.intensite = intensite
+        agent.sous_objectif_actuel = "GO_ARMOIRE"
+
+        action = {"action": "ATTENDRE", "argument": None}
+        for _ in range(50):
+            agent.casier_selecteur, contenu = simuler_armoire(self.armoire, agent.casier_selecteur, action)
+            action = agent.interagir_avec_objectif({"contenu_casier": contenu})
+            if action["action"] == "PRENDRE":
+                break
+        return agent.plainte_active, action
+
+    def test_repli_intensite(self):
+        """Repli (section 8, point 5) : casier exact vide -> même émotion, autre intensité."""
+        # Tristesse / moyenne est en (1, 4) : on le vide
+        self.vider((1, 4))
+        plainte, action = self.fouiller("tristesse", "moyenne")
+
+        # Écart d'intensité 1 des deux côtés : la plus faible d'abord, donc (0, 4)
+        self.assertEqual(action, {"action": "PRENDRE", "argument": "objet_0_4"})
+        self.assertEqual(plainte.repli, "intensite")
+
+    def test_colonne_vide_repli_voisine(self):
+        """Repli (section 8, point 5) : colonne entière vide -> émotion voisine sur la roue."""
+        # Toute la colonne 3 (surprise) est vide
+        self.vider((0, 3), (1, 3), (2, 3))
+        plainte, action = self.fouiller("surprise", "forte")
+
+        # Voisines : peur (col 2) et tristesse (col 4) ; sens horaire d'abord, donc tristesse / forte
+        self.assertEqual(action, {"action": "PRENDRE", "argument": "objet_2_4"})
+        self.assertEqual(plainte.repli, "voisine_1")
+
 if __name__ == '__main__':
     unittest.main()
