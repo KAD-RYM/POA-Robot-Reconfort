@@ -171,7 +171,6 @@ class AgentReconfort:
 
         if self.casier_selecteur == plainte.casier_cible:
             if contenu:
-                print("\n"* 10)
                 print(f"OBJET TROUVE : '{contenu}'")
                 print(f"CASIER CIBLE ATTEINT : {self.casier_selecteur}")
                 print(f"CIBLE INITIALE : {plainte.casier_cible}")
